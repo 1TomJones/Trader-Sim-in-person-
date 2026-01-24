@@ -61,8 +61,9 @@ class SingleRandomBot extends StrategyBot {
       : Number.isFinite(topOfBook?.midPrice)
       ? topOfBook.midPrice
       : roundedLast;
-    const alpha = Number.isFinite(config.meanReversionAlpha) ? config.meanReversionAlpha : 0;
-    if (Number.isFinite(fairValue) && Number.isFinite(midPrice) && alpha > 0) {
+    const fairValueLink = config.fairValueLink === true;
+    const alpha = Number.isFinite(config.meanReversionAlpha) ? config.meanReversionAlpha : 0.03;
+    if (fairValueLink && Number.isFinite(fairValue) && Number.isFinite(midPrice) && alpha > 0) {
       const devTicks = (midPrice - fairValue) / tick;
       buyProbability = clamp(0.5 - devTicks * alpha, 0.1, 0.9);
     }
@@ -216,20 +217,30 @@ class LiquidityLadderBot extends StrategyBot {
     const config = this.config ?? {};
     const baseDistance = Number.isFinite(config.baseDistanceTicks) ? config.baseDistanceTicks : 10;
     const stepTicks = Number.isFinite(config.stepTicks) ? config.stepTicks : 2;
+    const minDistanceTicks = Number.isFinite(config.minDistanceTicks) ? config.minDistanceTicks : null;
+    const maxDistanceTicks = Number.isFinite(config.maxDistanceTicks) ? config.maxDistanceTicks : null;
     const levels = Number.isFinite(config.levels) ? Math.max(1, Math.round(config.levels)) : 8;
-    const sizeLadder = Array.isArray(config.sizes)
-      ? config.sizes.map((val) => Math.max(1, Math.round(val)))
-      : [40, 30, 22, 16, 12, 9, 7, 5];
+    const sizeLadder = (
+      Array.isArray(config.sizes)
+        ? config.sizes.map((val) => Math.max(1, Math.round(val)))
+        : [5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28]
+    ).sort((a, b) => a - b);
     const sizeAt = (i) => sizeLadder[i] ?? sizeLadder[sizeLadder.length - 1] ?? 1;
+    const useRange =
+      Number.isFinite(minDistanceTicks) &&
+      Number.isFinite(maxDistanceTicks) &&
+      levels > 1;
 
     this.activeOrderIds.clear();
     this.activeOrderTargets.clear();
 
-    for (let i = 1; i <= levels; i += 1) {
-      const dist = baseDistance + i * stepTicks;
+    for (let i = 0; i < levels; i += 1) {
+      const dist = useRange
+        ? minDistanceTicks + (i * (maxDistanceTicks - minDistanceTicks)) / (levels - 1)
+        : baseDistance + (i + 1) * stepTicks;
       const bidPrice = roundToTick(midPrice - dist * tick, tick);
       const askPrice = roundToTick(midPrice + dist * tick, tick);
-      const size = sizeAt(i - 1);
+      const size = sizeAt(i);
       if (Number.isFinite(bidPrice) && bidPrice > 0) {
         const result = this.submitOrder({ type: "limit", side: "BUY", price: bidPrice, quantity: size, source: "mm" });
         if (result?.resting?.id) {

@@ -986,6 +986,7 @@
       const risk = bot.config?.risk || {};
       const latency = bot.latency || {};
       const isSingleRandomBot = bot.type === 'Single-Random' || bot.config?.botType === 'Single-Random';
+      const fairValueLink = bot.config?.fairValueLink === true;
       const buyProbabilityPct = probabilityToPercent(
         bot.config?.buyProbability,
         50,
@@ -1048,6 +1049,13 @@
             <label class="label" for="randomOrderSize">Order size (units)</label>
             <input id="randomOrderSize" type="number" min="1" step="1" value="${orderSize}">
           </div>
+          <div>
+            <span class="label">Fair value link</span>
+            <p class="muted small-text">Loosely bias orders toward fair value when enabled.</p>
+            <button id="toggleFairValueLinkBtn" class="secondary">
+              ${fairValueLink ? 'Use random settings' : 'Link to fair value'}
+            </button>
+          </div>
         </div>
         <p class="muted">Probabilities clamp to 0–100%. Reservation k values are integers in ticks.</p>
         <div class="bot-detail-actions">
@@ -1083,6 +1091,7 @@
         const kMinInput = document.getElementById('randomKMin');
         const kMaxInput = document.getElementById('randomKMax');
         const sizeInput = document.getElementById('randomOrderSize');
+        const fairValueToggleBtn = document.getElementById('toggleFairValueLinkBtn');
         if (applyBtn) {
           applyBtn.onclick = async () => {
             const buyPct = readPercentInput(buyInput, buyProbabilityPct);
@@ -1110,6 +1119,30 @@
             } catch (err) {
               console.error('random bot patch failed', err);
               alert('Failed to update bot settings.');
+            }
+          };
+        }
+        if (fairValueToggleBtn) {
+          fairValueToggleBtn.onclick = async () => {
+            const nextAlpha = Number.isFinite(bot.config?.meanReversionAlpha)
+              ? bot.config.meanReversionAlpha
+              : 0.03;
+            try {
+              const res = await fetch(`/api/bots/${bot.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  fairValueLink: !fairValueLink,
+                  meanReversionAlpha: nextAlpha,
+                }),
+              });
+              if (!res.ok) throw new Error('patch failed');
+              await res.json();
+              await loadBotDetail(bot.id);
+              await fetchBotSummary();
+            } catch (err) {
+              console.error('fair value link patch failed', err);
+              alert('Failed to update fair value link.');
             }
           };
         }

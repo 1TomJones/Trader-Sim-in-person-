@@ -1007,15 +1007,6 @@
         bot.randomState?.aggressiveProbability,
         aggressiveProbabilityPct,
       );
-      const kRange = bot.config?.kRange || {};
-      const kMin = Math.max(
-        0,
-        Math.round(Number(Array.isArray(kRange) ? kRange[0] : kRange.min ?? 0)),
-      );
-      const kMax = Math.max(
-        kMin,
-        Math.round(Number(Array.isArray(kRange) ? kRange[1] : kRange.max ?? 4)),
-      );
       const orderSize = Math.max(
         1,
         Math.round(Number(bot.config?.child?.size ?? bot.config?.orderSize ?? bot.config?.size ?? 1)),
@@ -1042,32 +1033,20 @@
         <h3>Single Random Bot Controls</h3>
         <div class="bot-detail-grid">
           <div>
-            <label class="label" for="randomActiveBuyProbability">Active buy probability (%)</label>
+            <label class="label" for="randomActiveBuyProbability">Current buy probability (%)</label>
             <input id="randomActiveBuyProbability" type="number" value="${activeBuyProbabilityPct}" readonly>
           </div>
           <div>
-            <label class="label" for="randomActiveSellProbability">Active sell probability (%)</label>
+            <label class="label" for="randomActiveSellProbability">Current sell probability (%)</label>
             <input id="randomActiveSellProbability" type="number" value="${activeSellProbabilityPct}" readonly>
           </div>
           <div>
-            <label class="label" for="randomActiveAggressiveProbability">Active aggressiveness (%)</label>
+            <label class="label" for="randomActiveAggressiveProbability">Current aggressiveness (%)</label>
             <input id="randomActiveAggressiveProbability" type="number" value="${activeAggressiveProbabilityPct}" readonly>
           </div>
           <div>
-            <label class="label" for="randomBuyProbability">Buy probability (%)</label>
-            <input id="randomBuyProbability" type="number" min="0" max="100" step="1" value="${buyProbabilityPct}">
-          </div>
-          <div>
-            <label class="label" for="randomAggressiveProbability">Aggressive probability (%)</label>
+            <label class="label" for="randomAggressiveProbability">Base aggressiveness (%)</label>
             <input id="randomAggressiveProbability" type="number" min="0" max="100" step="1" value="${aggressiveProbabilityPct}">
-          </div>
-          <div>
-            <label class="label" for="randomKMin">Reservation k min (ticks)</label>
-            <input id="randomKMin" type="number" min="0" step="1" value="${kMin}">
-          </div>
-          <div>
-            <label class="label" for="randomKMax">Reservation k max (ticks)</label>
-            <input id="randomKMax" type="number" min="0" step="1" value="${kMax}">
           </div>
           <div>
             <label class="label" for="randomOrderSize">Order size (units)</label>
@@ -1081,7 +1060,7 @@
             </button>
           </div>
         </div>
-        <p class="muted">Active values refresh every 4 ticks when fair value link is enabled. Probabilities clamp to 0–100%. Reservation k values are integers in ticks.</p>
+        <p class="muted">Current values refresh every 4 ticks when fair value link is enabled. Probabilities clamp to 0–100%.</p>
         <div class="bot-detail-actions">
           <button id="applyRandomBotBtn" class="primary">Apply changes</button>
         </div>
@@ -1110,29 +1089,19 @@
       }
       if (isSingleRandomBot) {
         const applyBtn = document.getElementById('applyRandomBotBtn');
-        const buyInput = document.getElementById('randomBuyProbability');
         const aggressiveInput = document.getElementById('randomAggressiveProbability');
-        const kMinInput = document.getElementById('randomKMin');
-        const kMaxInput = document.getElementById('randomKMax');
         const sizeInput = document.getElementById('randomOrderSize');
         const fairValueToggleBtn = document.getElementById('toggleFairValueLinkBtn');
         if (applyBtn) {
           applyBtn.onclick = async () => {
-            const buyPct = readPercentInput(buyInput, buyProbabilityPct);
             const aggressivePct = readPercentInput(aggressiveInput, aggressiveProbabilityPct);
-            const minK = readNonNegativeIntegerInput(kMinInput, kMin);
-            const maxK = readNonNegativeIntegerInput(kMaxInput, kMax);
-            const sortedMin = Math.min(minK, maxK);
-            const sortedMax = Math.max(minK, maxK);
             const size = readIntegerInput(sizeInput, orderSize);
             try {
               const res = await fetch(`/api/bots/${bot.id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  buyProbability: buyPct / 100,
                   aggressiveProbability: aggressivePct / 100,
-                  kRange: { min: sortedMin, max: sortedMax },
                   child: { size },
                 }),
               });

@@ -28,7 +28,7 @@
       <div class="panel-body">
         <div class="control-row">
           <input id="productName" placeholder="Product name" />
-          <input id="startPrice" type="number" inputmode="decimal" placeholder="Start price" />
+          <input id="startPrice" type="number" inputmode="decimal" placeholder="Start price (250)" />
         </div>
         <div class="control-row">
           <button id="startBtn">Start Round</button>
@@ -46,7 +46,7 @@
         <div class="admin-constraints">
           <label>
             <span class="label">Max Position Size</span>
-            <input id="maxPositionInput" type="number" min="0" step="1" placeholder="5" />
+            <input id="maxPositionInput" type="number" min="0" step="1" placeholder="200" />
           </label>
           <label>
             <span class="label">Max Loss</span>
@@ -1195,7 +1195,7 @@
 
     startBtn.onclick = () => {
       const product = (document.getElementById('productName').value||'').trim() || 'Demo Asset';
-      const startPrice = parseFloat(document.getElementById('startPrice').value) || 100;
+      const startPrice = parseFloat(document.getElementById('startPrice').value) || 250;
       socket.emit('startGame', { startPrice, product });
     };
     pauseBtn.onclick = () => socket.emit('pauseGame');

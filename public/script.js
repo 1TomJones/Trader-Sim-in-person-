@@ -49,6 +49,7 @@ const chartContainer = document.getElementById('chart');
 let chartApi = null;
 let candleSeriesApi = null;
 let avgPriceLineCandle = null;
+let taskRequiredAvgLineCandle = null;
 let chartResizeObserver = null;
 
 const buyBtn         = document.getElementById('buyBtn');
@@ -85,6 +86,7 @@ const MAX_POINTS = 600;
 const CANDLE_DURATION_MS = 10000;
 const MAX_VISIBLE_CANDLES = 120;
 const MAX_CANDLES = 360;
+const DEFAULT_START_PRICE = 250;
 let myAvgCost = 0;
 let myPos = 0;
 let currentMode = 'news';
@@ -276,6 +278,7 @@ function ensureChart(){
 
   candleSeriesApi.setData(candlePlotData);
   updateAveragePriceLine();
+  updateTaskRequiredAvgLine();
   syncMarkers();
 
   if (!chartResizeObserver && typeof ResizeObserver === 'function') {
@@ -531,6 +534,27 @@ function updateAveragePriceLine(){
   avgPriceLineCandle = candleSeriesApi.createPriceLine(options);
 }
 
+function updateTaskRequiredAvgLine() {
+  if (typeof LightweightCharts === 'undefined' || !candleSeriesApi) return;
+  if (taskRequiredAvgLineCandle) {
+    candleSeriesApi.removePriceLine(taskRequiredAvgLineCandle);
+    taskRequiredAvgLineCandle = null;
+  }
+  const requiredAvg = Number(activeTask?.requiredAvgPrice);
+  if (!activeTask || !Number.isFinite(requiredAvg)) {
+    return;
+  }
+  const options = {
+    price: roundPrice(requiredAvg),
+    color: '#f1c40f',
+    lineStyle: LightweightCharts.LineStyle.Dotted,
+    lineWidth: 1,
+    axisLabelVisible: true,
+    title: 'Req avg',
+  };
+  taskRequiredAvgLineCandle = candleSeriesApi.createPriceLine(options);
+}
+
 function clearSeries(){
   prices = [];
   tick = 0;
@@ -544,7 +568,7 @@ function clearSeries(){
 }
 
 function prepareNewRound(initialPrice){
-  const px = Number.isFinite(+initialPrice) ? +initialPrice : Number(prices.at(-1) ?? 100);
+  const px = Number.isFinite(+initialPrice) ? +initialPrice : Number(prices.at(-1) ?? DEFAULT_START_PRICE);
   clearSeries();
   prices.push(px);
   seedInitialCandle(px);
@@ -753,6 +777,7 @@ function resetTaskState() {
   }
   if (taskLastResult) taskLastResult.textContent = '—';
   if (taskNextTimer) taskNextTimer.textContent = '—';
+  updateTaskRequiredAvgLine();
   renderTaskPanel();
   renderScoreboard();
 }
@@ -813,7 +838,19 @@ function getArrivalPrice() {
   if (Number.isFinite(lastTradedPrice)) return lastTradedPrice;
   const labelPrice = Number(priceLbl?.textContent);
   if (Number.isFinite(labelPrice)) return labelPrice;
-  return 100;
+  return DEFAULT_START_PRICE;
+}
+
+function getTaskPrefillQty({ side, targetQty }) {
+  const qty = Math.max(0, Number(targetQty) || 0);
+  const position = Number(myPos || 0);
+  if (side === 'BUY' && position > 0) {
+    return Math.min(qty, position);
+  }
+  if (side === 'SELL' && position < 0) {
+    return Math.min(qty, Math.abs(position));
+  }
+  return 0;
 }
 
 function buildTask() {
@@ -829,6 +866,8 @@ function buildTask() {
       ? arrivalPrice - offset
       : arrivalPrice + offset
     : null;
+  const prefillQty = getTaskPrefillQty({ side, targetQty: qty });
+  const prefillAvg = prefillQty > 0 && Number.isFinite(myAvgCost) && myAvgCost > 0 ? myAvgCost : null;
   const contact = pickRandom(role.contacts) ?? role.contacts[0];
   const message = pickRandom(role.messages) ?? 'Stay tight on execution.';
   const createdAt = Date.now();
@@ -839,8 +878,8 @@ function buildTask() {
     message,
     side,
     targetQty: qty,
-    filledQty: 0,
-    avgFillPrice: null,
+    filledQty: prefillQty,
+    avgFillPrice: prefillAvg,
     arrivalPrice,
     requiredAvgPrice,
     createdAt,
@@ -955,6 +994,7 @@ function completeTask() {
 
 function renderTaskPanel() {
   if (!taskList) return;
+  updateTaskRequiredAvgLine();
   taskList.innerHTML = '';
   if (!activeTask) {
     if (taskEmpty) taskEmpty.classList.remove('hidden');

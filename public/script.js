@@ -849,7 +849,7 @@ function updateTaskTimers() {
   if (activeTask && activeTask.status !== 'completed') {
     const remaining = activeTask.expiresAt - Date.now();
     if (remaining <= 0 && activeTask.status === 'active') {
-      activeTask.status = 'expired';
+      expireTask();
     }
   }
   if (taskNextTimer) {
@@ -934,6 +934,37 @@ function completeTask() {
   scheduleNextTask({ delaySec: delay });
 }
 
+function expireTask() {
+  if (!activeTask || activeTask.status !== 'active') return;
+  const now = Date.now();
+  const completionScore = clamp((activeTask.filledQty / activeTask.targetQty) * 100, 0, 100);
+  const marketEfficiencyScore = calculateMarketEfficiency(activeTask);
+  const performancePnl = calculatePerformancePnl(activeTask);
+  const commission = 0;
+  const totalPnl = performancePnl + commission;
+  const result = {
+    id: activeTask.id,
+    difficulty: activeTask.difficulty,
+    completionScore,
+    speedScore: 0,
+    marketEfficiencyScore,
+    commission,
+    pnl: totalPnl,
+    filledQty: activeTask.filledQty,
+    targetQty: activeTask.targetQty,
+    completedAt: now,
+  };
+  taskHistory.push(result);
+  activeTask.status = 'expired';
+  activeTask = null;
+  if (taskLastResult) {
+    taskLastResult.textContent = `${result.difficulty} · ${completionScore.toFixed(0)}% complete · ${totalPnl.toFixed(2)} PnL`;
+  }
+  renderTaskPanel();
+  renderScoreboard();
+  scheduleNextTask({ delaySec: randomBetween(5, 12) });
+}
+
 function renderTaskPanel() {
   if (!taskList) return;
   taskList.innerHTML = '';
@@ -947,7 +978,6 @@ function renderTaskPanel() {
   const progressPct = clamp((task.filledQty / task.targetQty) * 100, 0, 100);
   const requiredAvgLabel = task.requiredAvgPrice ? formatPrice(task.requiredAvgPrice) : 'Not required';
   const avgFillLabel = Number.isFinite(task.avgFillPrice) ? formatPrice(task.avgFillPrice) : '—';
-  const statusLabel = task.status === 'expired' ? 'Expired' : 'Active';
   const badgeClass = task.side === 'BUY' ? 'buy' : 'sell';
   const card = document.createElement('div');
   card.className = `task-card ${task.status === 'expired' ? 'expired' : ''}`;
@@ -961,14 +991,12 @@ function renderTaskPanel() {
     </div>
     <div class="task-message">${task.message}</div>
     <div class="task-detail-grid">
-      <div><span class="label">Difficulty</span><br /><strong>${task.difficulty}</strong></div>
-      <div><span class="label">Status</span><br /><strong>${statusLabel}</strong></div>
-      <div><span class="label">Target</span><br /><strong>${formatVolume(task.targetQty)}</strong></div>
-      <div><span class="label">Filled</span><br /><strong>${formatVolume(task.filledQty)}</strong></div>
-      <div><span class="label">Time left</span><br /><strong>${formatTaskCountdown(remainingMs)}</strong></div>
-      <div><span class="label">Arrival</span><br /><strong>${formatPrice(task.arrivalPrice)}</strong></div>
-      <div><span class="label">Required avg</span><br /><strong>${requiredAvgLabel}</strong></div>
-      <div><span class="label">Avg fill</span><br /><strong>${avgFillLabel}</strong></div>
+      <div class="task-detail-box"><span class="label">Time</span><strong class="task-detail-value">${formatTaskCountdown(remainingMs)}</strong></div>
+      <div class="task-detail-box"><span class="label">Target</span><strong class="task-detail-value">${formatVolume(task.targetQty)}</strong></div>
+      <div class="task-detail-box"><span class="label">Filled</span><strong class="task-detail-value">${formatVolume(task.filledQty)}</strong></div>
+      <div class="task-detail-box"><span class="label">Arrival</span><strong class="task-detail-value">${formatPrice(task.arrivalPrice)}</strong></div>
+      <div class="task-detail-box"><span class="label">Req avg</span><strong class="task-detail-value">${requiredAvgLabel}</strong></div>
+      <div class="task-detail-box"><span class="label">Avg fill</span><strong class="task-detail-value">${avgFillLabel}</strong></div>
     </div>
     <div class="task-rule">Rule: ${task.side === 'BUY' ? 'Avg fill must be below required price.' : 'Avg fill must be above required price.'}</div>
     <div class="task-progress"><span style="width:${progressPct.toFixed(1)}%"></span></div>

@@ -717,6 +717,19 @@ function formatTaskCountdown(msRemaining) {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
+function formatTaskDuration(task) {
+  if (!task) return '—';
+  const baseMs = Math.max(0, Number(task.timeLimitSec) * 1000);
+  const elapsedMs = Math.max(0, Date.now() - Number(task.createdAt || Date.now()));
+  const elapsedLabel = formatTaskCountdown(elapsedMs);
+  const baseLabel = formatTaskCountdown(baseMs);
+  if (elapsedMs <= baseMs) {
+    return `${elapsedLabel} / ${baseLabel}`;
+  }
+  const overtimeLabel = formatTaskCountdown(elapsedMs - baseMs);
+  return `${elapsedLabel} / ${baseLabel} (+${overtimeLabel})`;
+}
+
 function assignRoleIfNeeded() {
   if (currentRole) return;
   const role = pickRandom(ROLE_PRESETS) ?? ROLE_PRESETS[0];
@@ -831,7 +844,6 @@ function buildTask() {
     arrivalPrice,
     requiredAvgPrice,
     createdAt,
-    expiresAt: createdAt + difficulty.timeLimitSec * 1000,
     timeLimitSec: difficulty.timeLimitSec,
     status: 'active',
     voiceLine: TASK_VOICE_PLACEHOLDER,
@@ -846,12 +858,6 @@ function allocateTask() {
 }
 
 function updateTaskTimers() {
-  if (activeTask && activeTask.status !== 'completed') {
-    const remaining = activeTask.expiresAt - Date.now();
-    if (remaining <= 0 && activeTask.status === 'active') {
-      expireTask();
-    }
-  }
   if (taskNextTimer) {
     if (nextTaskAt) {
       taskNextTimer.textContent = formatTaskCountdown(nextTaskAt - Date.now());
@@ -900,10 +906,11 @@ function calculatePerformancePnl(task) {
 function completeTask() {
   if (!activeTask || activeTask.status === 'completed') return;
   const now = Date.now();
-  const remaining = activeTask.expiresAt - now;
-  const timeLimitSec = activeTask.timeLimitSec;
+  const timeLimitSec = Math.max(1, Number(activeTask.timeLimitSec || 0));
+  const elapsedMs = Math.max(0, now - Number(activeTask.createdAt || now));
+  const overtimeRatio = Math.max(0, (elapsedMs - timeLimitSec * 1000) / (timeLimitSec * 1000));
   const completionScore = clamp((activeTask.filledQty / activeTask.targetQty) * 100, 0, 100);
-  const speedScore = remaining > 0 ? 100 : 0;
+  const speedScore = clamp(100 - overtimeRatio * 100, 0, 100);
   const marketEfficiencyScore = calculateMarketEfficiency(activeTask);
   const performancePnl = calculatePerformancePnl(activeTask);
   const commission = 0;
@@ -928,40 +935,6 @@ function completeTask() {
   }
   renderTaskPanel();
   renderScoreboard();
-  const baseDelay = randomBetween(10, 30);
-  const bonus = Math.round(clamp((remaining / (timeLimitSec * 1000)) * 10, 0, 10));
-  const delay = clamp(baseDelay - bonus, 5, 30);
-  scheduleNextTask({ delaySec: delay });
-}
-
-function expireTask() {
-  if (!activeTask || activeTask.status !== 'active') return;
-  const now = Date.now();
-  const completionScore = clamp((activeTask.filledQty / activeTask.targetQty) * 100, 0, 100);
-  const marketEfficiencyScore = calculateMarketEfficiency(activeTask);
-  const performancePnl = calculatePerformancePnl(activeTask);
-  const commission = 0;
-  const totalPnl = performancePnl + commission;
-  const result = {
-    id: activeTask.id,
-    difficulty: activeTask.difficulty,
-    completionScore,
-    speedScore: 0,
-    marketEfficiencyScore,
-    commission,
-    pnl: totalPnl,
-    filledQty: activeTask.filledQty,
-    targetQty: activeTask.targetQty,
-    completedAt: now,
-  };
-  taskHistory.push(result);
-  activeTask.status = 'expired';
-  activeTask = null;
-  if (taskLastResult) {
-    taskLastResult.textContent = `${result.difficulty} · ${completionScore.toFixed(0)}% complete · ${totalPnl.toFixed(2)} PnL`;
-  }
-  renderTaskPanel();
-  renderScoreboard();
   scheduleNextTask({ delaySec: randomBetween(5, 12) });
 }
 
@@ -974,24 +947,27 @@ function renderTaskPanel() {
   }
   if (taskEmpty) taskEmpty.classList.add('hidden');
   const task = activeTask;
-  const remainingMs = task.expiresAt - Date.now();
+  const timeLabel = formatTaskDuration(task);
   const progressPct = clamp((task.filledQty / task.targetQty) * 100, 0, 100);
   const requiredAvgLabel = task.requiredAvgPrice ? formatPrice(task.requiredAvgPrice) : 'Not required';
   const avgFillLabel = Number.isFinite(task.avgFillPrice) ? formatPrice(task.avgFillPrice) : '—';
   const badgeClass = task.side === 'BUY' ? 'buy' : 'sell';
   const card = document.createElement('div');
-  card.className = `task-card ${task.status === 'expired' ? 'expired' : ''}`;
+  card.className = 'task-card';
   card.innerHTML = `
     <div class="task-card-header">
       <div class="task-card-title">
         <span>${task.sender.name} · ${task.sender.title}</span>
         <span class="muted">${task.sender.org}</span>
       </div>
-      <span class="task-badge ${badgeClass}">${task.side}</span>
+      <div class="task-card-actions">
+        <button type="button" class="ticket-btn" data-task-finish>Finish</button>
+        <span class="task-badge ${badgeClass}">${task.side}</span>
+      </div>
     </div>
     <div class="task-message">${task.message}</div>
     <div class="task-detail-grid">
-      <div class="task-detail-box"><span class="label">Time</span><strong class="task-detail-value">${formatTaskCountdown(remainingMs)}</strong></div>
+      <div class="task-detail-box"><span class="label">Time</span><strong class="task-detail-value">${timeLabel}</strong></div>
       <div class="task-detail-box"><span class="label">Target</span><strong class="task-detail-value">${formatVolume(task.targetQty)}</strong></div>
       <div class="task-detail-box"><span class="label">Filled</span><strong class="task-detail-value">${formatVolume(task.filledQty)}</strong></div>
       <div class="task-detail-box"><span class="label">Arrival</span><strong class="task-detail-value">${formatPrice(task.arrivalPrice)}</strong></div>
@@ -1001,9 +977,6 @@ function renderTaskPanel() {
     <div class="task-rule">Rule: ${task.side === 'BUY' ? 'Avg fill must be below required price.' : 'Avg fill must be above required price.'}</div>
     <div class="task-progress"><span style="width:${progressPct.toFixed(1)}%"></span></div>
     <div class="task-voice">${task.voiceLine}</div>
-    <div class="task-actions">
-      <button type="button" class="ticket-btn" data-task-complete>Complete</button>
-    </div>
   `;
   taskList.appendChild(card);
 }
@@ -2310,7 +2283,7 @@ taskTabs.forEach((tab) => {
 
 if (taskList) {
   taskList.addEventListener('click', (ev) => {
-    const btn = ev.target.closest('[data-task-complete]');
+    const btn = ev.target.closest('[data-task-finish]');
     if (!btn) return;
     completeTask();
   });

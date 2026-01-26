@@ -130,6 +130,7 @@ button:disabled{opacity:.6;cursor:not-allowed}
 .task-card{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04)}
 .task-card.expired{border-color:rgba(255,186,90,0.5);box-shadow:0 0 0 1px rgba(255,186,90,0.25)}
 .task-card-header{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.task-card-actions{display:flex;align-items:center;gap:8px}
 .task-card-title{display:flex;flex-direction:column;gap:4px;font-weight:600}
 .task-badge{font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;padding:3px 6px;border-radius:999px;border:1px solid rgba(255,255,255,0.2)}
 .task-badge.buy{background:rgba(46,204,113,0.2);color:#a6f4c5;border-color:rgba(46,204,113,0.4)}

@@ -38,7 +38,7 @@ setInterval(() => {
   engine.stepTick();
   io.emit(SERVER_EVENTS.MARKET_TICK, engine.marketView());
   io.emit(SERVER_EVENTS.LEADERBOARD, { rows: engine.leaderboard() });
-  io.emit(SERVER_EVENTS.NEWS_FEED_UPDATE, { events: engine.news.slice(0, 30), tickers: engine.marketView().prices, energy: engine.energy });
+  io.emit(SERVER_EVENTS.NEWS_FEED_UPDATE, { events: engine.news.slice(0, 30), tickers: engine.marketView().prices, energy: engine.energy, simDate: engine.simDateISO() });
   io.emit(SERVER_EVENTS.ADMIN_MARKET_STATE, engine.adminMarketState());
   for (const p of engine.players.values()) {
     if (!p.socketId) continue;

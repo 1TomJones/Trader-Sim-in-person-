@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
 import { createDb } from './server/db.mjs';
 import { SimEngine } from './server/engine.mjs';
-import { CLIENT_EVENTS, SERVER_EVENTS, SIM_STATUS, ASSETS, RIG_CATALOG, REGIONS } from './shared/contracts.mjs';
+import { CLIENT_EVENTS, SERVER_EVENTS, ASSETS, RIG_CATALOG, REGIONS } from './shared/contracts.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,9 +14,9 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
 const db = createDb(process.env.DB_PATH);
-const engine = new SimEngine(db);
+const engine = new SimEngine(db, { tickMs: Number(process.env.TICK_MS || 1000), seed: process.env.SIM_SEED });
 const ADMIN_PIN = process.env.ADMIN_PIN || '1234';
-const TICK_MS = Number(process.env.TICK_MS || 1000);
+let tickTimer = null;
 
 app.use(express.json());
 app.use('/client', express.static(path.join(__dirname, 'client')));
@@ -31,28 +31,30 @@ app.get('/admin/news', (_req, res) => res.sendFile(path.join(__dirname, 'client/
 app.get('/admin/control', (_req, res) => res.sendFile(path.join(__dirname, 'client/admin-control.html')));
 
 app.get('/api/bootstrap', (_req, res) => {
-  res.json({ assets: ASSETS, rigCatalog: RIG_CATALOG, regions: REGIONS, simState: engine.state });
+  res.json({ assets: ASSETS, rigCatalog: RIG_CATALOG, regions: REGIONS, simState: engine.state, tickMs: engine.tickMs, simSeeded: process.env.SIM_SEED != null });
 });
 
-setInterval(() => {
+function broadcast() {
   engine.stepTick();
-  io.emit(SERVER_EVENTS.MARKET_TICK, engine.marketView());
+  const market = engine.marketView();
+  io.emit(SERVER_EVENTS.MARKET_TICK, market);
   io.emit(SERVER_EVENTS.LEADERBOARD, { rows: engine.leaderboard() });
-  io.emit(SERVER_EVENTS.NEWS_FEED_UPDATE, { events: engine.news.slice(0, 30), tickers: engine.marketView().prices, energy: engine.energy, simDate: engine.simDateISO() });
+  io.emit(SERVER_EVENTS.NEWS_FEED_UPDATE, { events: engine.news.slice(0, 30), tickers: market.prices, energy: engine.energy, simDate: engine.simDateISO(), unlockedAssets: market.unlockedAssets });
   io.emit(SERVER_EVENTS.ADMIN_MARKET_STATE, engine.adminMarketState());
   for (const p of engine.players.values()) {
     if (!p.socketId) continue;
     io.to(p.socketId).emit(SERVER_EVENTS.PLAYER_STATE, engine.playerView(p));
   }
-}, TICK_MS);
-
-function emitLobby() {
-  io.emit(SERVER_EVENTS.LOBBY_STATE, engine.lobbyView());
 }
 
-function sendErr(socket, message) {
-  socket.emit(SERVER_EVENTS.ERROR, { message });
+function restartTickLoop() {
+  if (tickTimer) clearInterval(tickTimer);
+  tickTimer = setInterval(broadcast, engine.tickMs);
 }
+restartTickLoop();
+
+function emitLobby() { io.emit(SERVER_EVENTS.LOBBY_STATE, engine.lobbyView()); }
+function sendErr(socket, message) { socket.emit(SERVER_EVENTS.ERROR, { message }); }
 
 io.on('connection', (socket) => {
   socket.emit(SERVER_EVENTS.MARKET_TICK, engine.marketView());
@@ -76,55 +78,23 @@ io.on('connection', (socket) => {
     socket.emit('adminAuthed', { ok: true });
   });
 
-  socket.on(CLIENT_EVENTS.REQUEST_START, () => {
+  socket.on(CLIENT_EVENTS.REQUEST_START, () => { if (!socket.data.isAdmin) return sendErr(socket, 'Admin only'); engine.start(); emitLobby(); });
+  socket.on(CLIENT_EVENTS.REQUEST_PAUSE, () => { if (!socket.data.isAdmin) return sendErr(socket, 'Admin only'); engine.pause(); emitLobby(); });
+  socket.on(CLIENT_EVENTS.REQUEST_END, () => { if (!socket.data.isAdmin) return sendErr(socket, 'Admin only'); engine.end(); emitLobby(); });
+
+  socket.on(CLIENT_EVENTS.ADMIN_SET_TICK_SPEED, ({ tickMs }) => {
     if (!socket.data.isAdmin) return sendErr(socket, 'Admin only');
-    engine.start();
-    emitLobby();
-  });
-  socket.on(CLIENT_EVENTS.REQUEST_PAUSE, () => {
-    if (!socket.data.isAdmin) return sendErr(socket, 'Admin only');
-    engine.pause();
-    emitLobby();
-  });
-  socket.on(CLIENT_EVENTS.REQUEST_END, () => {
-    if (!socket.data.isAdmin) return sendErr(socket, 'Admin only');
-    engine.end();
-    emitLobby();
+    if (!engine.setTickMs(Number(tickMs))) return sendErr(socket, 'Tick speed must be 500 or 1000 ms/day');
+    restartTickLoop();
   });
 
-  socket.on(CLIENT_EVENTS.BUY_CRYPTO, ({ symbol, qty }) => {
-    const p = engine.getPlayerBySocket(socket.id);
-    if (!p) return sendErr(socket, 'Join first');
-    const out = engine.buyCrypto(p, symbol, qty);
-    if (!out.ok) sendErr(socket, out.message);
-  });
-  socket.on(CLIENT_EVENTS.SELL_CRYPTO, ({ symbol, qty }) => {
-    const p = engine.getPlayerBySocket(socket.id);
-    if (!p) return sendErr(socket, 'Join first');
-    const out = engine.sellCrypto(p, symbol, qty);
-    if (!out.ok) sendErr(socket, out.message);
-  });
-  socket.on(CLIENT_EVENTS.BUY_RIG, ({ region, rigType, count }) => {
-    const p = engine.getPlayerBySocket(socket.id);
-    if (!p) return sendErr(socket, 'Join first');
-    const out = engine.buyRig(p, region, rigType, count);
-    if (!out.ok) sendErr(socket, out.message);
-  });
-  socket.on(CLIENT_EVENTS.SELL_RIG, (payload) => {
-    const p = engine.getPlayerBySocket(socket.id);
-    if (!p) return sendErr(socket, 'Join first');
-    const out = engine.sellRig(p, payload);
-    if (!out.ok) sendErr(socket, out.message);
-  });
+  socket.on(CLIENT_EVENTS.BUY_CRYPTO, ({ symbol, qty }) => { const p = engine.getPlayerBySocket(socket.id); if (!p) return sendErr(socket, 'Join first'); const out = engine.buyCrypto(p, symbol, qty); if (!out.ok) sendErr(socket, out.message); });
+  socket.on(CLIENT_EVENTS.SELL_CRYPTO, ({ symbol, qty }) => { const p = engine.getPlayerBySocket(socket.id); if (!p) return sendErr(socket, 'Join first'); const out = engine.sellCrypto(p, symbol, qty); if (!out.ok) sendErr(socket, out.message); });
+  socket.on(CLIENT_EVENTS.BUY_RIG, ({ region, rigType, count }) => { const p = engine.getPlayerBySocket(socket.id); if (!p) return sendErr(socket, 'Join first'); const out = engine.buyRig(p, region, rigType, count); if (!out.ok) sendErr(socket, out.message); });
+  socket.on(CLIENT_EVENTS.SELL_RIG, (payload) => { const p = engine.getPlayerBySocket(socket.id); if (!p) return sendErr(socket, 'Join first'); const out = engine.sellRig(p, payload); if (!out.ok) sendErr(socket, out.message); });
 
-  socket.on(CLIENT_EVENTS.ADMIN_CREATE_NEWS, (payload) => {
-    if (!socket.data.isAdmin) return sendErr(socket, 'Admin only');
-    engine.createNews(payload);
-  });
-  socket.on(CLIENT_EVENTS.ADMIN_UPDATE_MARKET, (payload) => {
-    if (!socket.data.isAdmin) return sendErr(socket, 'Admin only');
-    engine.updateMarketParams(payload);
-  });
+  socket.on(CLIENT_EVENTS.ADMIN_CREATE_NEWS, (payload) => { if (!socket.data.isAdmin) return sendErr(socket, 'Admin only'); engine.createNews(payload); });
+  socket.on(CLIENT_EVENTS.ADMIN_UPDATE_MARKET, (payload) => { if (!socket.data.isAdmin) return sendErr(socket, 'Admin only'); engine.updateMarketParams(payload); if (payload?.tickMs) restartTickLoop(); });
 
   socket.on('disconnect', () => engine.removeSocket(socket.id));
 });

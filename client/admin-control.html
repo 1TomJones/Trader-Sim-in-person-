@@ -8,16 +8,14 @@
 </head>
 <body>
   <div class='container'>
-    <div class='panel'>
-      <h2>🎛️ Admin Control</h2>
-      <div id='auth' class='row'>
-        <input id='pin' placeholder='Admin PIN'/>
-        <button class='btn' id='go'>Unlock</button>
-      </div>
-      <div id='adminNav' class='row hidden'>
-        <a class='btn alt' href='/admin/news'>Go to Admin News</a>
-        <a class='btn alt' href='/admin/leaderboard'>Go to Leaderboard</a>
-      </div>
+    <div class='panel row space'>
+      <h2>Admin Control</h2>
+      <div id='auth' class='row'><input id='pin' placeholder='Admin PIN' type='password'/><button id='go' class='btn'>Unlock</button></div>
+    </div>
+    <div id='adminNav' class='panel hidden row'>
+      <a class='btn alt' href='/admin/leaderboard'>Leaderboard</a>
+      <a class='btn alt' href='/admin/news'>News</a>
+      <a class='btn alt' href='/admin/control'>Control</a>
     </div>
 
     <div id='adminContent' class='hidden'>
@@ -26,6 +24,9 @@
           <button id='start' class='btn'>Start</button>
           <button id='pause' class='btn alt'>Pause</button>
           <button id='end' class='btn bad'>End</button>
+          <span class='badge'>Sim Date: <b id='controlSimDate'>2015-01-01</b></span>
+          <select id='tickSpeed'><option value='1000'>1.0s/day</option><option value='500'>0.5s/day</option></select>
+          <button id='setTickSpeed' class='btn alt'>Set Tick Speed</button>
         </div>
       </div>
 
@@ -37,20 +38,20 @@
           <button class='btn' id='applyParams'>Apply</button>
         </div>
         <div class='panel'>
-          <h3>Create News</h3>
+          <h3>Create News / Manual Bias / Energy Shock</h3>
           <input id='headline' placeholder='Headline'/>
           <textarea id='body' placeholder='Body'></textarea>
           <div class='row'>
             <select id='affected' multiple size='6' style='min-width:180px'></select>
             <select id='direction'><option>UP</option><option>DOWN</option></select>
             <input id='strength' type='number' step='0.01' value='0.7'/>
-            <input id='dur' type='number' value='120'/>
+            <input id='dur' type='number' value='15'/>
           </div>
           <div class='row'>
             <select id='ereg'><option>ASIA</option><option>EUROPE</option><option>AMERICA</option></select>
             <input id='edelta' type='number' step='0.01' placeholder='Energy delta'/>
           </div>
-          <button class='btn' id='createNews'>Create News Event</button>
+          <button class='btn' id='createNews'>Create Event</button>
         </div>
       </div>
 

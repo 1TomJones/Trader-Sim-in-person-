@@ -7,69 +7,54 @@ let regions = [];
 let me = null;
 let hasJoined = false;
 let latestLobbyStatus = SIM_STATUS.LOBBY;
+let unlockedAssets = {};
 
 const $ = (id) => document.getElementById(id);
+const fmtDate = (d) => new Date(d).toISOString().slice(0, 10);
 
-function showPlayerJoin() {
-  $('joinScreen').classList.remove('hidden');
-  $('waitScreen').classList.add('hidden');
-  $('app').classList.add('hidden');
-}
-
-function showPlayerWait() {
-  $('joinScreen').classList.add('hidden');
-  $('waitScreen').classList.remove('hidden');
-  $('app').classList.add('hidden');
-}
-
-function showPlayerApp() {
-  $('joinScreen').classList.add('hidden');
-  $('waitScreen').classList.add('hidden');
-  $('app').classList.remove('hidden');
-}
+function showPlayerJoin() { $('joinScreen').classList.remove('hidden'); $('waitScreen').classList.add('hidden'); $('app').classList.add('hidden'); }
+function showPlayerWait() { $('joinScreen').classList.add('hidden'); $('waitScreen').classList.remove('hidden'); $('app').classList.add('hidden'); }
+function showPlayerApp() { $('joinScreen').classList.add('hidden'); $('waitScreen').classList.add('hidden'); $('app').classList.remove('hidden'); }
 
 fetch('/api/bootstrap').then((r) => r.json()).then((b) => {
   assets = b.assets;
   rigCatalog = b.rigCatalog;
   regions = b.regions;
-  $('symbol').innerHTML = assets.map((a) => `<option value='${a.symbol}'>${a.symbol}</option>`).join('');
   $('rigType').innerHTML = Object.values(rigCatalog).map((r) => `<option value='${r.key}'>${r.name} ($${r.purchasePrice})</option>`).join('');
   $('rigRegion').innerHTML = regions.map((r) => `<option>${r}</option>`).join('');
+  renderSymbolOptions();
 });
+
+function renderSymbolOptions() {
+  $('symbol').innerHTML = assets.map((a) => {
+    const unlocked = !!unlockedAssets[a.symbol];
+    return `<option value='${a.symbol}' ${unlocked ? '' : 'disabled'}>${a.symbol}${unlocked ? '' : ' (LOCKED)'}</option>`;
+  }).join('');
+}
 
 $('join').onclick = () => {
-  socket.emit(CLIENT_EVENTS.JOIN_ROOM, {
-    name: $('name').value,
-    roomCode: $('room').value,
-    playerId: localStorage.getItem('playerId'),
-  });
+  socket.emit(CLIENT_EVENTS.JOIN_ROOM, { name: $('name').value, roomCode: $('room').value, playerId: localStorage.getItem('playerId') });
 };
-
-socket.on('joined', ({ playerId }) => {
-  localStorage.setItem('playerId', playerId);
-  hasJoined = true;
-  if (latestLobbyStatus === SIM_STATUS.RUNNING) showPlayerApp();
-  else showPlayerWait();
-});
-
+socket.on('joined', ({ playerId }) => { localStorage.setItem('playerId', playerId); hasJoined = true; if (latestLobbyStatus === SIM_STATUS.RUNNING) showPlayerApp(); else showPlayerWait(); });
 socket.on(SERVER_EVENTS.ERROR, ({ message }) => alert(message));
 
 socket.on(SERVER_EVENTS.LOBBY_STATE, ({ players, status }) => {
   latestLobbyStatus = status;
   $('status').textContent = status;
   $('players').textContent = `Players waiting: ${players.map((p) => p.name).join(', ') || 'None yet'}`;
-
-  if (!hasJoined) {
-    showPlayerJoin();
-    return;
-  }
-
-  if (status === SIM_STATUS.RUNNING) showPlayerApp();
-  else showPlayerWait();
+  if (!hasJoined) return showPlayerJoin();
+  if (status === SIM_STATUS.RUNNING) showPlayerApp(); else showPlayerWait();
 });
 
-socket.on(SERVER_EVENTS.MARKET_TICK, (tick) => { prices = tick.prices; renderAssets(); });
-socket.on(SERVER_EVENTS.PLAYER_STATE, (p) => { me = p; renderPlayer(); renderAssets(); });
+socket.on(SERVER_EVENTS.MARKET_TICK, (tick) => {
+  prices = tick.prices;
+  unlockedAssets = tick.unlockedAssets || unlockedAssets;
+  $('simDate').textContent = fmtDate(tick.simDate);
+  $('btcPx').textContent = `$${Number(prices.BTC?.price || 0).toFixed(2)}`;
+  renderSymbolOptions();
+  renderAssets();
+});
+socket.on(SERVER_EVENTS.PLAYER_STATE, (p) => { me = p; unlockedAssets = p.unlockedAssets || unlockedAssets; $('simDate').textContent = fmtDate(p.simDate); renderPlayer(); renderAssets(); renderSymbolOptions(); });
 
 function renderPlayer() {
   if (!me) return;
@@ -77,8 +62,8 @@ function renderPlayer() {
   $('nw').textContent = `$${me.netWorth.toFixed(2)}`;
   $('pnl').textContent = `$${me.pnl.toFixed(2)}`;
   $('negWarn').classList.toggle('hidden', me.cash >= 0);
-  $('buy').disabled = me.cash < 0;
-  $('buyRig').disabled = me.cash < 0;
+  $('buy').disabled = me.cash <= 0;
+  $('buyRig').disabled = me.cash <= 0;
 }
 
 function renderAssets() {
@@ -87,7 +72,8 @@ function renderAssets() {
     const prev = prices[a.symbol]?.previous ?? p;
     const up = p >= prev;
     const own = me?.holdings?.[a.symbol]?.qty || 0;
-    return `<div class='asset'><b>${a.symbol}</b> <span class='muted'>${a.type}</span><div>$${p.toFixed(6)}</div><div class='${up ? 'good' : 'bad'}'>${up ? '▲' : '▼'} ${(p - prev).toFixed(6)}</div><div class='muted'>Owned: ${own.toFixed(5)} ($${(own * p).toFixed(2)})</div></div>`;
+    const unlocked = !!unlockedAssets[a.symbol];
+    return `<div class='asset ${unlocked ? '' : 'locked-asset'}'><b>${a.symbol}</b> <span class='muted'>${a.type}</span>${unlocked ? '' : `<span class='badge'>LOCKED</span>`}<div>$${p.toFixed(6)}</div><div class='${up ? 'good' : 'bad'}'>${up ? '▲' : '▼'} ${(p - prev).toFixed(6)}</div><div class='muted'>Owned: ${own.toFixed(5)} ($${(own * p).toFixed(2)})</div></div>`;
   }).join('');
 }
 
@@ -104,15 +90,5 @@ socket.on(SERVER_EVENTS.ADMIN_MARKET_STATE, (s) => {
   }).join('');
 });
 
-$('tradeTab').onclick = () => {
-  $('tradeView').classList.remove('hidden');
-  $('mineView').classList.add('hidden');
-  $('tradeTab').className = 'btn tab';
-  $('mineTab').className = 'btn alt tab';
-};
-$('mineTab').onclick = () => {
-  $('mineView').classList.remove('hidden');
-  $('tradeView').classList.add('hidden');
-  $('mineTab').className = 'btn tab';
-  $('tradeTab').className = 'btn alt tab';
-};
+$('tradeTab').onclick = () => { $('tradeView').classList.remove('hidden'); $('mineView').classList.add('hidden'); $('tradeTab').className = 'btn tab'; $('mineTab').className = 'btn alt tab'; };
+$('mineTab').onclick = () => { $('mineView').classList.remove('hidden'); $('tradeView').classList.add('hidden'); $('mineTab').className = 'btn tab'; $('tradeTab').className = 'btn alt tab'; };

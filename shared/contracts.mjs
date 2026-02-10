@@ -1,7 +1,3 @@
-/**
- * Shared event + domain contracts for the trading sim.
- */
-
 export const SIM_STATUS = {
   LOBBY: 'LOBBY',
   RUNNING: 'RUNNING',
@@ -18,16 +14,7 @@ export const RIG_CATALOG = {
 };
 
 export const ASSETS = [
-  { symbol: 'BTC', name: 'Bitcoin', type: 'major', basePrice: 315, tickSize: 1 },
-  { symbol: 'ETH', name: 'Ethereum', type: 'major', basePrice: 1.4, tickSize: 0.02 },
-  { symbol: 'SOL', name: 'Solana', type: 'major', basePrice: 0.5, tickSize: 0.01 },
-  { symbol: 'BNB', name: 'Binance Coin', type: 'major', basePrice: 0.2, tickSize: 0.01 },
-  { symbol: 'XRP', name: 'XRP', type: 'major', basePrice: 0.02, tickSize: 0.001 },
-  { symbol: 'DOGE', name: 'Dogecoin', type: 'meme', basePrice: 0.0002, tickSize: 0.00001 },
-  { symbol: 'SHIB', name: 'Shiba Inu', type: 'meme', basePrice: 0.00000001, tickSize: 0.000000001 },
-  { symbol: 'PEPE', name: 'Pepe', type: 'meme', basePrice: 0.00000001, tickSize: 0.000000001 },
-  { symbol: 'FLOKI', name: 'Floki', type: 'meme', basePrice: 0.00000001, tickSize: 0.000000001 },
-  { symbol: 'BONK', name: 'Bonk', type: 'meme', basePrice: 0.00000001, tickSize: 0.000000001 },
+  { symbol: 'BTC', name: 'Bitcoin', type: 'major', basePrice: 13, tickSize: 1 },
 ];
 
 export const SERVER_EVENTS = {
@@ -37,6 +24,7 @@ export const SERVER_EVENTS = {
   LEADERBOARD: 'leaderboard',
   NEWS_FEED_UPDATE: 'newsFeedUpdate',
   ADMIN_MARKET_STATE: 'adminMarketState',
+  NEWS_EVENT_TRIGGERED: 'newsEventTriggered',
   ERROR: 'serverError',
 };
 
@@ -49,7 +37,6 @@ export const CLIENT_EVENTS = {
   SELL_CRYPTO: 'sellCrypto',
   BUY_RIG: 'buyRig',
   SELL_RIG: 'sellRig',
-  ADMIN_CREATE_NEWS: 'adminCreateNews',
   ADMIN_UPDATE_MARKET: 'adminUpdateMarketParams',
   ADMIN_SET_TICK_SPEED: 'adminSetTickSpeed',
   ADMIN_AUTH: 'adminAuth',

@@ -3,7 +3,7 @@
 <head>
   <meta charset='utf-8'/>
   <meta name='viewport' content='width=device-width,initial-scale=1'/>
-  <title>Trader Sim Player</title>
+  <title>Trader Sim Player (BTC Only)</title>
   <link rel='stylesheet' href='/client/styles.css'/>
 </head>
 <body>
@@ -20,28 +20,39 @@
     </div>
 
     <div id='app' class='hidden'>
-      <div id='negWarn' class='warn hidden'>Cash negative: you must sell assets or wait for profits.</div>
+      <div id='negWarn' class='warn hidden'>Cash is negative from mining costs; buy actions are blocked until positive.</div>
       <div class='panel row space'>
-        <div>Sim Date: <b id='simDate'>2015-01-01</b> | BTC: <b id='btcPx'>$0</b></div>
+        <div>Sim Date: <b id='simDate'>2013-01-01</b> | BTC: <b id='btcPx'>$0</b></div>
         <div>Cash: <b id='cash'></b> | Net Worth: <b id='nw'></b> | PnL: <b id='pnl'></b></div>
       </div>
       <div class='tabs'><button class='btn tab' id='tradeTab'>Trade</button><button class='btn alt tab' id='mineTab'>Mine</button></div>
 
       <div id='tradeView' class='panel'>
-        <h3>Trade (Long-only)</h3>
-        <div id='assetWrap' class='grid'></div>
-        <div class='row'><select id='symbol'></select><input id='qty' type='number' min='0' step='any' placeholder='Quantity'/><button class='btn' id='buy'>Buy</button><button class='btn alt' id='sell'>Sell</button></div>
+        <h3>Trade BTC (Long-only)</h3>
+        <div id='playerBtcChart' class='tv-chart' style='height:280px;min-height:220px;'></div>
+        <div class='grid3'>
+          <div class='asset'><b>BTC Holdings</b><div id='btcQty'>0</div></div>
+          <div class='asset'><b>Avg Entry</b><div id='avgEntry'>$0</div></div>
+          <div class='asset'><b>Unrealized PnL</b><div id='uPnL'>$0</div><div class='muted'>Realized: <span id='rPnL'>$0</span></div></div>
+        </div>
+        <div class='row'>
+          <span class='badge'>BTC Qty</span>
+          <input id='qty' type='number' min='0' step='any' placeholder='Quantity'/>
+          <span class='muted'>USD est: <b id='usdEstimate'>$0.00</b></span>
+          <button class='btn' id='buy'>Buy</button>
+          <button class='btn alt' id='sell'>Sell</button>
+        </div>
       </div>
 
       <div id='mineView' class='panel hidden'>
-        <h3>Mine (BTC only output)</h3>
-        <div id='regionWrap' class='grid3'></div>
+        <h3>Mine BTC</h3>
+        <div id='mineMetrics' class='grid'></div>
         <div class='row'><select id='rigRegion'></select><select id='rigType'></select><input id='rigCount' type='number' value='1' min='1'/><button class='btn' id='buyRig'>Buy Rig</button><button class='btn alt' id='sellRig'>Sell 1 Matching Rig</button></div>
-        <div class='muted'>Running costs apply daily and may drive cash negative.</div>
       </div>
     </div>
   </div>
   <script src='/socket.io/socket.io.js'></script>
+  <script src='https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js'></script>
   <script type='module' src='/client/player.js'></script>
 </body>
 </html>

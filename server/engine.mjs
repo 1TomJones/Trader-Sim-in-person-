@@ -6,27 +6,25 @@ import { ASSETS, REGIONS, RIG_CATALOG, SIM_STATUS } from '../shared/contracts.mj
 const STARTING_CASH = 100000;
 const ROOM_ID = 'MAIN';
 const BLOCKS_PER_DAY = 144;
-const SIM_START_DATE_UTC = Date.UTC(2015, 0, 1);
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SIM_START_DATE_UTC = Date.UTC(2013, 0, 1);
+const SIM_END_DATE_UTC = Date.UTC(2017, 11, 31);
 const EPS = 0.00000001;
 
-const BASE_ENERGY = {
-  ASIA: 0.09,
-  EUROPE: 0.17,
-  AMERICA: 0.12,
-};
+const BASE_ENERGY = { ASIA: 0.09, EUROPE: 0.17, AMERICA: 0.12 };
 
 const YEAR_REGIMES = {
-  2015: { stepPct: 0.002, magnetK: 0.05, maxDriftPct: 0.018, volatilityMult: 1 },
-  2016: { stepPct: 0.0023, magnetK: 0.06, maxDriftPct: 0.02, volatilityMult: 1.1 },
-  2017: { stepPct: 0.0035, magnetK: 0.04, maxDriftPct: 0.03, volatilityMult: 1.8 },
-  2018: { stepPct: 0.003, magnetK: 0.08, maxDriftPct: 0.028, volatilityMult: 1.6 },
-  2019: { stepPct: 0.0015, magnetK: 0.07, maxDriftPct: 0.015, volatilityMult: 1.1 },
-  2020: { stepPct: 0.001, magnetK: 0.09, maxDriftPct: 0.02, volatilityMult: 1.3 },
+  2013: { stepPct: 0.05, magnetK: 0.08, maxDriftPct: 0.11 },
+  2014: { stepPct: 0.025, magnetK: 0.07, maxDriftPct: 0.08 },
+  2015: { stepPct: 0.012, magnetK: 0.06, maxDriftPct: 0.04 },
+  2016: { stepPct: 0.015, magnetK: 0.06, maxDriftPct: 0.05 },
+  2017: { stepPct: 0.045, magnetK: 0.04, maxDriftPct: 0.12 },
 };
 
 const uuid = () => crypto.randomUUID();
-const clampMin = (v, min) => Math.max(min, v);
 const toISODate = (ms) => new Date(ms).toISOString().slice(0, 10);
+const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+const clampMin = (v, min) => Math.max(min, v);
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -57,48 +55,72 @@ export class SimEngine {
     this.state = { roomId: ROOM_ID, status: SIM_STATUS.LOBBY, startedAt: null, tick: 0 };
 
     this.btcSeries = this.loadBtcSeries();
+    this.seriesDates = [...this.btcSeries.keys()].sort();
     this.networkHashrateSeries = this.loadHashrateSeries();
     this.scheduledEvents = this.loadEvents();
     this.nextScheduledEventIdx = 0;
 
     this.players = new Map();
     this.socketToPlayer = new Map();
-    this.market = new Map(ASSETS.map((a) => [a.symbol, { ...a, lastPrice: a.basePrice, previousPrice: a.basePrice, biasDirection: null, biasStrength: 0.5, biasUntilTick: -1, updatedAt: Date.now() }]));
-    const btcStart = this.btcSeries.get('2015-01-01');
+    this.market = new Map(ASSETS.map((a) => [a.symbol, { ...a, lastPrice: a.basePrice, previousPrice: a.basePrice, biasDirection: null, biasStrength: 0, biasUntilTick: -1, magnetAdjust: 1, updatedAt: Date.now() }]));
+
+    const btcStart = this.btcSeries.get('2013-01-01');
     if (btcStart) {
       this.market.get('BTC').lastPrice = btcStart;
       this.market.get('BTC').previousPrice = btcStart;
     }
 
-    this.assetUnlocked = Object.fromEntries(ASSETS.map((a) => [a.symbol, a.symbol === 'BTC']));
     this.energy = { ...BASE_ENERGY };
     this.energyModifiers = [];
-    this.activeVolatility = [];
-    this.activeHashrateMultipliers = [];
+    this.volatilityBoosts = [];
+    this.magnetAdjusters = [];
     this.news = [];
     this.adminLog = [];
     this.rate = new Map();
+    this.lastTriggeredNews = [];
     this.persistMarket();
   }
 
   loadBtcSeries() {
-    const rows = parseCsv(path.join(process.cwd(), 'server', 'data', 'btc_usd_daily_2015_2020.csv'));
+    const rows = parseCsv(path.join(process.cwd(), 'server', 'data', 'btc_usd_daily_2013_2017.csv'));
     return new Map(rows.map((r) => [r.date, Number(r.close)]));
   }
 
   loadHashrateSeries() {
-    const rows = parseCsv(path.join(process.cwd(), 'server', 'data', 'btc_network_hashrate_monthly_2015_2020.csv'));
+    const rows = parseCsv(path.join(process.cwd(), 'server', 'data', 'network_hashrate_monthly_2013_2017.csv'));
     return new Map(rows.map((r) => [r.month.slice(0, 7), Number(r.hashrateTHs)]));
   }
 
   loadEvents() {
-    const p = path.join(process.cwd(), 'server', 'data', 'events_2015_2020.json');
+    const p = path.join(process.cwd(), 'server', 'data', 'events_2013_2017.json');
     if (!fs.existsSync(p)) return [];
     return JSON.parse(fs.readFileSync(p, 'utf8')).sort((a, b) => a.date.localeCompare(b.date));
   }
 
-  currentSimDateMs() { return SIM_START_DATE_UTC + this.state.tick * 24 * 60 * 60 * 1000; }
+  currentSimDateMs() {
+    return Math.min(SIM_END_DATE_UTC, SIM_START_DATE_UTC + this.state.tick * DAY_MS);
+  }
+
   simDateISO() { return new Date(this.currentSimDateMs()).toISOString(); }
+
+  initialCandles52() {
+    const idx = Math.max(51, this.state.tick);
+    const start = Math.max(0, idx - 51);
+    const out = [];
+    for (let i = start; i <= idx; i += 1) {
+      const date = this.seriesDates[i];
+      if (!date) continue;
+      const close = this.btcSeries.get(date);
+      out.push({ time: Math.floor(Date.parse(`${date}T00:00:00.000Z`) / 1000), open: close, high: close, low: close, close });
+    }
+    return out;
+  }
+
+  dailyCandle() {
+    const d = this.simDateISO().slice(0, 10);
+    const p = this.market.get('BTC').lastPrice;
+    return { time: Math.floor(Date.parse(`${d}T00:00:00.000Z`) / 1000), open: p, high: p, low: p, close: p };
+  }
 
   addPlayer({ socketId, name }) {
     let pid = this.socketToPlayer.get(socketId);
@@ -109,9 +131,15 @@ export class SimEngine {
     const id = uuid();
     const createdAt = Date.now();
     const player = {
-      id, socketId, name: String(name || 'Player').slice(0, 24), roomId: ROOM_ID, createdAt,
-      cashUSD: STARTING_CASH, startingCash: STARTING_CASH,
-      holdings: Object.fromEntries(ASSETS.map((a) => [a.symbol, { qty: 0, avgEntry: 0 }])),
+      id,
+      socketId,
+      name: String(name || 'Player').slice(0, 24),
+      roomId: ROOM_ID,
+      createdAt,
+      cashUSD: STARTING_CASH,
+      startingCash: STARTING_CASH,
+      holdings: { BTC: { qty: 0, avgEntry: 0 } },
+      realizedPnL: 0,
       rigs: [],
     };
     this.players.set(id, player);
@@ -142,60 +170,55 @@ export class SimEngine {
   setTickMs(ms) { if (![500, 1000].includes(ms)) return false; this.tickMs = ms; this.logAdmin(`Tick speed changed to ${ms}ms/day`); return true; }
 
   blockRewardForDate(dateMs) {
-    const d = toISODate(dateMs);
-    if (d < '2016-07-09') return 25;
-    if (d < '2020-05-11') return 12.5;
-    return 6.25;
+    return toISODate(dateMs) < '2016-07-09' ? 25 : 12.5;
+  }
+
+  nextHalvingCountdownDays(dateMs) {
+    const halving = Date.parse('2016-07-09T00:00:00.000Z');
+    if (dateMs >= halving) return null;
+    return Math.ceil((halving - dateMs) / DAY_MS);
   }
 
   networkHashrateTHs(dateMs) {
-    const monthKey = new Date(dateMs).toISOString().slice(0, 7);
-    const base = this.networkHashrateSeries.get(monthKey) ?? [...this.networkHashrateSeries.values()].at(-1) ?? 1;
-    const mult = this.activeHashrateMultipliers.reduce((acc, r) => acc * r.multiplier, 1);
-    return base * mult;
+    const d = new Date(dateMs);
+    const monthStart = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    const curr = this.networkHashrateSeries.get(monthStart);
+    if (curr != null) return curr;
+    return [...this.networkHashrateSeries.values()].at(-1) ?? 1000;
   }
 
   triggerEvent(ev) {
-    const newsEvent = {
-      id: uuid(),
-      timestamp: Date.now(),
-      headline: ev.headline,
-      body: ev.body,
-      tags: ev.tags || [],
-      date: ev.date,
-      effects: ev.effects || {},
-    };
+    const newsEvent = { id: uuid(), timestamp: Date.now(), headline: ev.headline, body: ev.body, date: ev.date, effects: ev.effects || {} };
     this.news.unshift(newsEvent);
+    this.lastTriggeredNews.push(newsEvent);
     this.news = this.news.slice(0, 200);
 
-    const effects = ev.effects || {};
-    if (effects.unlockAsset) {
-      const unlocks = Array.isArray(effects.unlockAsset) ? effects.unlockAsset : [effects.unlockAsset];
-      for (const sym of unlocks) if (this.assetUnlocked[sym] != null) this.assetUnlocked[sym] = true;
+    const { effects = {} } = ev;
+    if (effects.biasDirection) {
+      const m = this.market.get('BTC');
+      m.biasDirection = effects.biasDirection;
+      m.biasStrength = Number(effects.biasStrength || 0);
+      m.biasUntilTick = this.state.tick + Number(effects.durationDays || 1);
     }
-    if (effects.priceBias) {
-      const { symbol = 'BTC', direction = 'UP', strength = 0.65, durationDays = 30 } = effects.priceBias;
-      const m = this.market.get(symbol);
-      if (m) {
-        m.biasDirection = direction;
-        m.biasStrength = Math.max(0.51, Math.min(0.95, Number(strength)));
-        m.biasUntilTick = this.state.tick + Number(durationDays);
-      }
+    if (effects.volatilityBoost) {
+      this.volatilityBoosts.push({ multiplier: Number(effects.volatilityBoost), untilTick: this.state.tick + Number(effects.durationDays || 7) });
+    }
+    if (effects.magnetAdjust) {
+      this.magnetAdjusters.push({ adjust: Number(effects.magnetAdjust), untilTick: this.state.tick + Number(effects.durationDays || 7) });
     }
     if (effects.energyDelta) {
       const regions = effects.energyDelta.regions || REGIONS;
-      const durationDays = Number(effects.energyDelta.durationDays || 0);
       for (const region of regions) {
-        this.energyModifiers.push({ region, delta: Number(effects.energyDelta.delta || 0), untilTick: durationDays > 0 ? this.state.tick + durationDays : Number.POSITIVE_INFINITY });
+        this.energyModifiers.push({ region, delta: Number(effects.energyDelta.delta || 0), untilTick: this.state.tick + Number(effects.durationDays || 7) });
       }
     }
-    if (effects.volatility) {
-      this.activeVolatility.push({ multiplier: Number(effects.volatility.multiplier || 1), untilTick: this.state.tick + Number(effects.volatility.durationDays || 30) });
-    }
-    if (effects.networkHashrateMultiplier) {
-      this.activeHashrateMultipliers.push({ multiplier: Number(effects.networkHashrateMultiplier.multiplier || 1), untilTick: this.state.tick + Number(effects.networkHashrateMultiplier.durationDays || 30) });
-    }
     this.logAdmin(`Scheduled event: ${ev.headline}`);
+  }
+
+  consumeTriggeredNews() {
+    const out = [...this.lastTriggeredNews];
+    this.lastTriggeredNews = [];
+    return out;
   }
 
   applyScheduledEvents() {
@@ -210,45 +233,49 @@ export class SimEngine {
   applyEnergyAndRegimes() {
     this.energy = { ...BASE_ENERGY };
     this.energyModifiers = this.energyModifiers.filter((m) => m.untilTick > this.state.tick);
-    this.activeVolatility = this.activeVolatility.filter((m) => m.untilTick > this.state.tick);
-    this.activeHashrateMultipliers = this.activeHashrateMultipliers.filter((m) => m.untilTick > this.state.tick);
+    this.volatilityBoosts = this.volatilityBoosts.filter((m) => m.untilTick > this.state.tick);
+    this.magnetAdjusters = this.magnetAdjusters.filter((m) => m.untilTick > this.state.tick);
     for (const mod of this.energyModifiers) this.energy[mod.region] = Math.max(0.02, this.energy[mod.region] + mod.delta);
   }
 
   priceStep(asset) {
     const simDateMs = this.currentSimDateMs();
     const year = new Date(simDateMs).getUTCFullYear();
-    const regime = YEAR_REGIMES[year] || YEAR_REGIMES[2020];
-    const volMult = this.activeVolatility.reduce((acc, x) => acc * x.multiplier, 1);
-    const stepPct = regime.stepPct * volMult;
-    const stepSizeUSD = Math.max(asset.symbol === 'BTC' ? 1 : EPS, Math.round(asset.lastPrice * stepPct * 1000000) / 1000000);
+    const regime = YEAR_REGIMES[year] || YEAR_REGIMES[2017];
+    const extraVol = this.volatilityBoosts.reduce((acc, x) => acc * x.multiplier, 1);
+    const stepPct = regime.stepPct * extraVol;
+    const stepSizeUSD = Math.max(1, Math.round(asset.lastPrice * stepPct));
 
+    let upProb = 0.5;
     const biasActive = asset.biasUntilTick >= this.state.tick;
-    const upProb = biasActive
-      ? (asset.biasDirection === 'UP' ? asset.biasStrength : 1 - asset.biasStrength)
-      : 0.5;
+    if (biasActive) {
+      const delta = clamp(asset.biasStrength, 0, 0.45);
+      upProb = asset.biasDirection === 'UP' ? 0.5 + delta : 0.5 - delta;
+    }
     const signedStep = this.rng() < upProb ? stepSizeUSD : -stepSizeUSD;
 
     const dateKey = toISODate(simDateMs);
-    const targetPrice = asset.symbol === 'BTC' ? (this.btcSeries.get(dateKey) ?? asset.lastPrice) : asset.lastPrice;
+    const targetPrice = this.btcSeries.get(dateKey) ?? asset.lastPrice;
     const maxDrift = asset.lastPrice * regime.maxDriftPct;
-    const drift = Math.max(-maxDrift, Math.min(maxDrift, (targetPrice - asset.lastPrice) * regime.magnetK));
+    const magnetAdjust = this.magnetAdjusters.reduce((acc, m) => acc * m.adjust, 1);
+    const driftTowardTarget = clamp((targetPrice - asset.lastPrice) * regime.magnetK * magnetAdjust, -maxDrift, +maxDrift);
 
     asset.previousPrice = asset.lastPrice;
-    asset.lastPrice = clampMin(asset.lastPrice + signedStep + drift, EPS);
+    asset.lastPrice = clampMin(asset.lastPrice + signedStep + driftTowardTarget, EPS);
     asset.updatedAt = Date.now();
   }
 
   stepTick() {
     if (this.state.status !== SIM_STATUS.RUNNING) return;
+    if (this.currentSimDateMs() >= SIM_END_DATE_UTC) {
+      this.end();
+      return;
+    }
     this.state.tick += 1;
     this.applyScheduledEvents();
     this.applyEnergyAndRegimes();
 
-    for (const asset of this.market.values()) {
-      if (!this.assetUnlocked[asset.symbol] && asset.symbol !== 'BTC') continue;
-      this.priceStep(asset);
-    }
+    this.priceStep(this.market.get('BTC'));
 
     for (const p of this.players.values()) this.applyMiningForPlayer(p);
     this.persistWalletsAndHoldings();
@@ -257,61 +284,82 @@ export class SimEngine {
     this.persistSimState();
   }
 
-  applyMiningForPlayer(player) {
-    let minedBTC = 0;
-    let energyCost = 0;
+  miningMetricsForPlayer(player) {
     const networkHashrate = this.networkHashrateTHs(this.currentSimDateMs());
-    const reward = this.blockRewardForDate(this.currentSimDateMs());
-    for (const rig of player.rigs) {
-      const share = rig.hashrateTHs / networkHashrate;
-      minedBTC += share * BLOCKS_PER_DAY * reward;
+    const playerHashrate = player.rigs.reduce((s, r) => s + r.hashrateTHs, 0);
+    const playerShare = networkHashrate > 0 ? playerHashrate / networkHashrate : 0;
+    const blockReward = this.blockRewardForDate(this.currentSimDateMs());
+    const btcPerDay = playerShare * BLOCKS_PER_DAY * blockReward;
+    const btcPrice = this.market.get('BTC').lastPrice;
+    const usdPerDay = btcPerDay * btcPrice;
+    const totalPowerKW = player.rigs.reduce((s, r) => s + (r.hashrateTHs * r.efficiencyWPerTH) / 1000, 0);
+    const energyCostDaily = player.rigs.reduce((sum, rig) => {
       const powerKW = (rig.hashrateTHs * rig.efficiencyWPerTH) / 1000;
-      energyCost += powerKW * 24 * (this.energy[rig.region] ?? 0.12);
-    }
-    if (minedBTC > 0) {
+      return sum + powerKW * 24 * (this.energy[rig.region] ?? 0.12);
+    }, 0);
+    return {
+      playerHashrateTHs: playerHashrate,
+      networkHashrateTHs: networkHashrate,
+      playerSharePct: playerShare * 100,
+      btcMinedPerDay: btcPerDay,
+      usdMinedPerDay: usdPerDay,
+      energyPrices: this.energy,
+      totalPowerDrawKW: totalPowerKW,
+      dailyEnergyCostUSD: energyCostDaily,
+      netMiningProfitUSDPerDay: usdPerDay - energyCostDaily,
+      blockRewardBTC: blockReward,
+      nextHalvingCountdownDays: this.nextHalvingCountdownDays(this.currentSimDateMs()),
+      difficultyIndex: networkHashrate / 1000,
+    };
+  }
+
+  applyMiningForPlayer(player) {
+    const mm = this.miningMetricsForPlayer(player);
+    if (mm.btcMinedPerDay > 0) {
       const h = player.holdings.BTC;
       const oldValue = h.qty * h.avgEntry;
-      const price = this.market.get('BTC').lastPrice;
-      h.qty += minedBTC;
-      h.avgEntry = h.qty === 0 ? 0 : (oldValue + minedBTC * price) / h.qty;
+      h.qty += mm.btcMinedPerDay;
+      const px = this.market.get('BTC').lastPrice;
+      h.avgEntry = h.qty === 0 ? 0 : (oldValue + mm.btcMinedPerDay * px) / h.qty;
     }
-    if (energyCost > 0) {
-      player.cashUSD -= energyCost;
-      this.db.prepare('INSERT INTO cost_ledger(id,playerId,type,amountUSD,timestamp) VALUES(?,?,?,?,?)').run(uuid(), player.id, 'ENERGY', Number(energyCost.toFixed(6)), Date.now());
+    if (mm.dailyEnergyCostUSD > 0) {
+      player.cashUSD -= mm.dailyEnergyCostUSD;
+      this.db.prepare('INSERT INTO cost_ledger(id,playerId,type,amountUSD,timestamp) VALUES(?,?,?,?,?)').run(uuid(), player.id, 'ENERGY', Number(mm.dailyEnergyCostUSD.toFixed(6)), Date.now());
     }
   }
 
   buyCrypto(player, symbol, qty) {
     if (this.state.status !== SIM_STATUS.RUNNING) return { ok: false, message: 'Simulation not running' };
     if (!this.assertRate(player.id, 'trade')) return { ok: false, message: 'Rate limit exceeded' };
+    if (symbol !== 'BTC') return { ok: false, message: 'BTC only' };
     qty = Number(qty);
     if (!(qty > 0)) return { ok: false, message: 'Invalid quantity' };
-    if (!this.assetUnlocked[symbol]) return { ok: false, message: `${symbol} is locked` };
-    const asset = this.market.get(symbol);
-    if (!asset) return { ok: false, message: 'Unknown asset' };
+    const asset = this.market.get('BTC');
     const cost = qty * asset.lastPrice;
-    if (player.cashUSD <= 0 || player.cashUSD - cost < 0) return { ok: false, message: 'Insufficient cash' };
-    const h = player.holdings[symbol];
+    if (!(player.cashUSD > 0 && player.cashUSD - cost >= 0)) return { ok: false, message: 'Insufficient cash' };
+    const h = player.holdings.BTC;
     const oldValue = h.qty * h.avgEntry;
     h.qty += qty;
     h.avgEntry = (oldValue + cost) / h.qty;
     player.cashUSD -= cost;
-    this.recordTrade(player.id, symbol, 'BUY', qty, asset.lastPrice);
+    this.recordTrade(player.id, 'BTC', 'BUY', qty, asset.lastPrice);
     return { ok: true };
   }
 
   sellCrypto(player, symbol, qty) {
     if (!this.assertRate(player.id, 'trade')) return { ok: false, message: 'Rate limit exceeded' };
+    if (symbol !== 'BTC') return { ok: false, message: 'BTC only' };
     qty = Number(qty);
     if (!(qty > 0)) return { ok: false, message: 'Invalid quantity' };
-    const asset = this.market.get(symbol);
-    const h = player.holdings[symbol];
-    if (!asset || !h) return { ok: false, message: 'Unknown asset' };
-    if (h.qty < qty) return { ok: false, message: 'Not enough quantity' };
+    const asset = this.market.get('BTC');
+    const h = player.holdings.BTC;
+    if (h.qty < qty) return { ok: false, message: 'Not enough BTC' };
     h.qty -= qty;
+    const realized = qty * (asset.lastPrice - h.avgEntry);
+    player.realizedPnL += realized;
     if (h.qty === 0) h.avgEntry = 0;
     player.cashUSD += qty * asset.lastPrice;
-    this.recordTrade(player.id, symbol, 'SELL', qty, asset.lastPrice);
+    this.recordTrade(player.id, 'BTC', 'SELL', qty, asset.lastPrice);
     return { ok: true };
   }
 
@@ -321,7 +369,7 @@ export class SimEngine {
     count = Math.max(1, Math.floor(Number(count) || 1));
     if (!rig || !REGIONS.includes(region)) return { ok: false, message: 'Invalid rig request' };
     const totalCost = rig.purchasePrice * count;
-    if (player.cashUSD <= 0 || player.cashUSD - totalCost < 0) return { ok: false, message: 'Insufficient cash' };
+    if (!(player.cashUSD > 0 && player.cashUSD - totalCost >= 0)) return { ok: false, message: 'Insufficient cash' };
     for (let i = 0; i < count; i += 1) {
       const r = { id: uuid(), playerId: player.id, region, rigType: rig.key, ...rig, createdAt: Date.now() };
       player.rigs.push(r);
@@ -346,54 +394,8 @@ export class SimEngine {
     return { ok: true };
   }
 
-  createNews(payload) {
-    const event = {
-      id: uuid(), timestamp: Date.now(), headline: String(payload.headline || 'Untitled').slice(0, 120), body: String(payload.body || '').slice(0, 500), tags: payload.tags || [],
-      affectedAssets: payload.affectedAssets || [], biasConfig: payload.biasConfig || null, energyConfig: payload.energyConfig || null,
-      durationSec: Number(payload.durationSec || 120), severity: payload.severity || 'MEDIUM',
-    };
-    this.news.unshift(event);
-    this.news = this.news.slice(0, 200);
-    const durationDays = Math.max(1, Math.round(event.durationSec / (this.tickMs / 1000)));
-    if (event.biasConfig) {
-      const { direction = 'UP', strength = 0.65 } = event.biasConfig;
-      for (const sym of event.affectedAssets) {
-        const m = this.market.get(sym);
-        if (m) {
-          m.biasDirection = direction;
-          m.biasStrength = Math.min(0.95, Math.max(0.51, Number(strength) || 0.65));
-          m.biasUntilTick = this.state.tick + durationDays;
-        }
-      }
-    }
-    if (event.energyConfig?.changes) {
-      for (const change of event.energyConfig.changes) {
-        this.energyModifiers.push({ region: change.region, delta: Number(change.delta || 0), untilTick: this.state.tick + durationDays });
-      }
-    }
-    this.db.prepare('INSERT INTO news_events(id,timestamp,headline,body,tags,affectedAssets,biasConfig,energyConfig,durationSec,severity) VALUES (?,?,?,?,?,?,?,?,?,?)').run(
-      event.id, event.timestamp, event.headline, event.body, JSON.stringify(event.tags), JSON.stringify(event.affectedAssets), JSON.stringify(event.biasConfig), JSON.stringify(event.energyConfig), event.durationSec, event.severity,
-    );
-    this.logAdmin(`News created: ${event.headline}`);
-    return event;
-  }
-
   updateMarketParams(payload) {
     if (payload?.tickMs) this.setTickMs(Number(payload.tickMs));
-    for (const row of payload?.assets || []) {
-      const m = this.market.get(row.symbol);
-      if (!m) continue;
-      if (row.manualBias) {
-        m.biasDirection = row.manualBias.direction;
-        m.biasStrength = Number(row.manualBias.strength || 0.6);
-        m.biasUntilTick = this.state.tick + Number(row.manualBias.durationDays || 15);
-      }
-      if (row.resetBias) {
-        m.biasDirection = null;
-        m.biasStrength = 0.5;
-        m.biasUntilTick = -1;
-      }
-    }
     for (const e of payload?.energy || []) if (REGIONS.includes(e.region) && Number(e.energyPriceUSD) > 0) this.energy[e.region] = Number(e.energyPriceUSD);
     this.logAdmin('Market params updated');
   }
@@ -401,15 +403,23 @@ export class SimEngine {
   recordTrade(playerId, symbol, side, qty, fillPrice) { this.db.prepare('INSERT INTO trades(id,playerId,symbol,side,qty,fillPrice,feeUSD,timestamp) VALUES (?,?,?,?,?,?,?,?)').run(uuid(), playerId, symbol, side, qty, fillPrice, 0, Date.now()); }
 
   netWorth(player) {
-    const holdingsValue = Object.entries(player.holdings).reduce((sum, [symbol, h]) => sum + h.qty * (this.market.get(symbol)?.lastPrice || 0), 0);
+    const btcPx = this.market.get('BTC').lastPrice;
+    const holdingsValue = player.holdings.BTC.qty * btcPx;
     const rigValue = player.rigs.reduce((sum, r) => sum + r.purchasePrice * r.resaleValuePct, 0);
     return player.cashUSD + holdingsValue + rigValue;
   }
 
-  leaderboard() { return [...this.players.values()].map((p) => { const nw = this.netWorth(p); return { playerId: p.id, name: p.name, cash: Number(p.cashUSD.toFixed(2)), netWorth: Number(nw.toFixed(2)), pnl: Number((nw - p.startingCash).toFixed(2)) }; }).sort((a, b) => b.pnl - a.pnl); }
+  leaderboard() {
+    return [...this.players.values()]
+      .map((p) => {
+        const nw = this.netWorth(p);
+        return { playerId: p.id, name: p.name, cash: Number(p.cashUSD.toFixed(2)), netWorth: Number(nw.toFixed(2)), pnl: Number((nw - p.startingCash).toFixed(2)) };
+      })
+      .sort((a, b) => b.pnl - a.pnl);
+  }
 
   positionsSummary() {
-    const rows = [...this.players.values()].map((p) => ({ name: p.name, btcQty: p.holdings.BTC.qty, memeQty: ['DOGE', 'SHIB', 'PEPE', 'FLOKI', 'BONK'].reduce((s, sym) => s + (p.holdings[sym]?.qty || 0), 0), rigs: p.rigs.length })).sort((a, b) => b.btcQty - a.btcQty);
+    const rows = [...this.players.values()].map((p) => ({ name: p.name, btcQty: p.holdings.BTC.qty, rigs: p.rigs.length })).sort((a, b) => b.btcQty - a.btcQty);
     const totalRigsByRegion = REGIONS.reduce((acc, r) => ({ ...acc, [r]: 0 }), {});
     for (const p of this.players.values()) for (const rig of p.rigs) totalRigsByRegion[rig.region] += 1;
     const totalCash = [...this.players.values()].reduce((s, p) => s + p.cashUSD, 0);
@@ -417,27 +427,45 @@ export class SimEngine {
   }
 
   playerView(player) {
+    const btc = player.holdings.BTC;
+    const price = this.market.get('BTC').lastPrice;
+    const unrealizedPnL = (price - btc.avgEntry) * btc.qty;
     return {
-      id: player.id, name: player.name, cash: Number(player.cashUSD.toFixed(2)), holdings: player.holdings, rigs: player.rigs,
-      netWorth: Number(this.netWorth(player).toFixed(2)), pnl: Number((this.netWorth(player) - player.startingCash).toFixed(2)),
-      simDate: this.simDateISO(), unlockedAssets: this.assetUnlocked,
+      id: player.id,
+      name: player.name,
+      cash: Number(player.cashUSD.toFixed(2)),
+      btcQty: btc.qty,
+      avgEntry: btc.avgEntry,
+      unrealizedPnL: Number(unrealizedPnL.toFixed(2)),
+      realizedPnL: Number(player.realizedPnL.toFixed(2)),
+      rigs: player.rigs,
+      miningMetrics: this.miningMetricsForPlayer(player),
+      netWorth: Number(this.netWorth(player).toFixed(2)),
+      pnl: Number((this.netWorth(player) - player.startingCash).toFixed(2)),
+      simDate: this.simDateISO(),
     };
   }
 
-  marketView() {
+  marketView(includeHistory = false) {
+    const btc = this.market.get('BTC');
     return {
-      time: Date.now(), simDate: this.simDateISO(),
-      prices: Object.fromEntries([...this.market.entries()].map(([k, v]) => [k, { price: v.lastPrice, previous: v.previousPrice, type: v.type }])),
-      unlockedAssets: this.assetUnlocked,
-      activeBiases: [...this.market.values()].filter((m) => m.biasUntilTick >= this.state.tick).map((m) => ({ symbol: m.symbol, direction: m.biasDirection, strength: m.biasStrength, untilTick: m.biasUntilTick })),
+      date: toISODate(this.currentSimDateMs()),
+      btcPrice: btc.lastPrice,
+      candle: this.dailyCandle(),
+      ...(includeHistory ? { last52Candles: this.initialCandles52() } : {}),
+      blockReward: this.blockRewardForDate(this.currentSimDateMs()),
+      networkHashrate: this.networkHashrateTHs(this.currentSimDateMs()),
+      energyPrices: this.energy,
+      prices: { BTC: { price: btc.lastPrice, previous: btc.previousPrice, type: 'major' } },
     };
   }
 
   lobbyView() { return { players: [...this.players.values()].map((p) => ({ id: p.id, name: p.name })), status: this.state.status }; }
 
   adminMarketState() {
+    const m = this.market.get('BTC');
     return {
-      perAsset: [...this.market.values()].map((m) => ({ symbol: m.symbol, lastPrice: m.lastPrice, biasDirection: m.biasDirection, biasStrength: m.biasStrength, biasUntilTick: m.biasUntilTick, unlocked: !!this.assetUnlocked[m.symbol] })),
+      perAsset: [{ symbol: 'BTC', lastPrice: m.lastPrice, biasDirection: m.biasDirection, biasStrength: m.biasStrength, biasUntilTick: m.biasUntilTick, unlocked: true }],
       energyPrices: this.energy,
       positionsSummary: this.positionsSummary(),
       simState: { ...this.state, simDate: this.simDateISO(), tickMs: this.tickMs, networkHashrateTHs: this.networkHashrateTHs(this.currentSimDateMs()), blockReward: this.blockRewardForDate(this.currentSimDateMs()) },
@@ -450,7 +478,7 @@ export class SimEngine {
     const upHold = this.db.prepare('INSERT INTO holdings(playerId,symbol,qty,avgEntry) VALUES(?,?,?,?) ON CONFLICT(playerId,symbol) DO UPDATE SET qty=excluded.qty, avgEntry=excluded.avgEntry');
     for (const p of this.players.values()) {
       upWallet.run(p.cashUSD, p.id);
-      for (const [sym, h] of Object.entries(p.holdings)) upHold.run(p.id, sym, h.qty, h.avgEntry);
+      upHold.run(p.id, 'BTC', p.holdings.BTC.qty, p.holdings.BTC.avgEntry);
     }
   }
 
@@ -458,7 +486,8 @@ export class SimEngine {
 
   persistMarket() {
     const up = this.db.prepare('INSERT INTO market_state(symbol,lastPrice,biasDirection,biasStrength,biasUntil,updatedAt) VALUES(?,?,?,?,?,?) ON CONFLICT(symbol) DO UPDATE SET lastPrice=excluded.lastPrice,biasDirection=excluded.biasDirection,biasStrength=excluded.biasStrength,biasUntil=excluded.biasUntil,updatedAt=excluded.updatedAt');
-    for (const m of this.market.values()) up.run(m.symbol, m.lastPrice, m.biasDirection, m.biasStrength, m.biasUntilTick, Date.now());
+    const m = this.market.get('BTC');
+    up.run(m.symbol, m.lastPrice, m.biasDirection, m.biasStrength, m.biasUntilTick, Date.now());
   }
 
   persistSimState() { this.db.prepare('INSERT INTO sim_state(roomId,status,startedAt,tick) VALUES(?,?,?,?) ON CONFLICT(roomId) DO UPDATE SET status=excluded.status,startedAt=excluded.startedAt,tick=excluded.tick').run(ROOM_ID, this.state.status, this.state.startedAt, this.state.tick); }

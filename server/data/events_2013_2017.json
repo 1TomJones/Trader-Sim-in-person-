@@ -1,0 +1,84 @@
+[
+  {
+    "date": "2013-03-15",
+    "headline": "Retail BTC demand surges",
+    "body": "Speculative demand accelerates as global attention climbs.",
+    "effects": {
+      "biasDirection": "UP",
+      "biasStrength": 0.28,
+      "durationDays": 60,
+      "volatilityBoost": 1.4
+    }
+  },
+  {
+    "date": "2013-12-05",
+    "headline": "Bubble stress and liquidation cascade",
+    "body": "Parabolic gains unwind as leverage flushes out.",
+    "effects": {
+      "biasDirection": "DOWN",
+      "biasStrength": 0.32,
+      "durationDays": 90,
+      "volatilityBoost": 1.6
+    }
+  },
+  {
+    "date": "2014-02-24",
+    "headline": "Mt. Gox collapse shock",
+    "body": "Confidence breaks and bear pressure intensifies.",
+    "effects": {
+      "biasDirection": "DOWN",
+      "biasStrength": 0.3,
+      "durationDays": 160,
+      "volatilityBoost": 1.5,
+      "energyDelta": {
+        "delta": 0.01,
+        "regions": [
+          "ASIA"
+        ]
+      }
+    }
+  },
+  {
+    "date": "2015-04-01",
+    "headline": "Bear exhaustion, range regime",
+    "body": "Selling pressure cools as market moves sideways.",
+    "effects": {
+      "biasDirection": "UP",
+      "biasStrength": 0.08,
+      "durationDays": 120,
+      "magnetAdjust": 1.2
+    }
+  },
+  {
+    "date": "2016-07-09",
+    "headline": "Bitcoin halving day",
+    "body": "Block reward drops to 12.5 BTC and supply narrative turns bullish.",
+    "effects": {
+      "biasDirection": "UP",
+      "biasStrength": 0.2,
+      "durationDays": 120
+    }
+  },
+  {
+    "date": "2017-05-15",
+    "headline": "Global breakout momentum",
+    "body": "Institutional curiosity and retail FOMO drive strong upside bursts.",
+    "effects": {
+      "biasDirection": "UP",
+      "biasStrength": 0.3,
+      "durationDays": 120,
+      "volatilityBoost": 1.8
+    }
+  },
+  {
+    "date": "2017-12-18",
+    "headline": "Mania unwind begins",
+    "body": "Post-peak volatility spikes as rapid profit taking hits the tape.",
+    "effects": {
+      "biasDirection": "DOWN",
+      "biasStrength": 0.24,
+      "durationDays": 30,
+      "volatilityBoost": 2.0
+    }
+  }
+]

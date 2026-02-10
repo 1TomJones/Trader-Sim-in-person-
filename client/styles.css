@@ -31,3 +31,5 @@ input,select,textarea{background:#0d1428;color:#fff;border:1px solid #24304f;bor
   .grid-news{grid-template-columns:1fr;}
   .tv-chart,#news{max-height:none;height:360px}
 }
+
+.locked-asset{opacity:.55;filter:grayscale(.3)}

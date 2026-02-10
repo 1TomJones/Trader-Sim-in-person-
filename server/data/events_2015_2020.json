@@ -1,0 +1,14 @@
+[
+  {"date":"2015-07-30","headline":"Ethereum Launches Mainnet","body":"ETH trading opens in the broader crypto market.","effects":{"unlockAsset":"ETH"},"tags":["unlock","major"]},
+  {"date":"2016-07-09","headline":"Bitcoin Halving","body":"BTC block reward changes from 25 to 12.5 BTC.","effects":{"priceBias":{"symbol":"BTC","direction":"UP","strength":0.62,"durationDays":40}},"tags":["halving","btc"]},
+  {"date":"2017-01-01","headline":"Crypto Risk Appetite Expands","body":"Majors attract sustained momentum as participation broadens.","effects":{"unlockAsset":["BNB","XRP","SOL"],"volatility":{"multiplier":1.4,"durationDays":320}},"tags":["regime","unlock"]},
+  {"date":"2017-08-01","headline":"Bitcoin Cash Fork","body":"BTC chain split increases volatility during price discovery.","effects":{"volatility":{"multiplier":1.6,"durationDays":25}},"tags":["fork","btc"]},
+  {"date":"2017-12-11","headline":"Cboe BTC Futures Go Live","body":"Institutional derivatives access adds momentum and volatility.","effects":{"priceBias":{"symbol":"BTC","direction":"UP","strength":0.68,"durationDays":20}},"tags":["futures","btc"]},
+  {"date":"2017-12-18","headline":"CME BTC Futures Launch","body":"Broader institutional participation expands derivatives market depth.","effects":{"priceBias":{"symbol":"BTC","direction":"UP","strength":0.64,"durationDays":14}},"tags":["futures","btc"]},
+  {"date":"2018-01-15","headline":"2018 Bear Regime","body":"Risk-off sentiment dominates; liquidation pressure builds.","effects":{"priceBias":{"symbol":"BTC","direction":"DOWN","strength":0.72,"durationDays":300},"volatility":{"multiplier":1.5,"durationDays":300}},"tags":["regime","bear"]},
+  {"date":"2019-04-01","headline":"Stabilization Year","body":"Volatility cools while network fundamentals keep growing.","effects":{"volatility":{"multiplier":1.05,"durationDays":260}},"tags":["regime"]},
+  {"date":"2020-03-12","headline":"March Liquidity Crash","body":"Cross-asset deleveraging drives sharp crypto drawdown.","effects":{"priceBias":{"symbol":"BTC","direction":"DOWN","strength":0.82,"durationDays":18},"volatility":{"multiplier":2.2,"durationDays":25},"energyDelta":{"regions":["ASIA","EUROPE","AMERICA"],"delta":0.015,"durationDays":30}},"tags":["crash","macro"]},
+  {"date":"2020-04-15","headline":"Recovery Risk-On","body":"Markets recover as liquidity and participation return.","effects":{"priceBias":{"symbol":"BTC","direction":"UP","strength":0.7,"durationDays":120}},"tags":["recovery","macro"]},
+  {"date":"2020-05-11","headline":"Bitcoin Halving","body":"BTC block reward changes from 12.5 to 6.25 BTC.","effects":{"priceBias":{"symbol":"BTC","direction":"UP","strength":0.61,"durationDays":60}},"tags":["halving","btc"]},
+  {"date":"2020-08-01","headline":"Meme Rotation Begins","body":"Retail flow spills into meme assets.","effects":{"unlockAsset":["DOGE","SHIB","PEPE","FLOKI","BONK"]},"tags":["unlock","meme"]}
+]

@@ -3,33 +3,28 @@
 <head>
   <meta charset='utf-8'/>
   <meta name='viewport' content='width=device-width,initial-scale=1'/>
-  <title>Player</title>
+  <title>Trader Sim Player</title>
   <link rel='stylesheet' href='/client/styles.css'/>
 </head>
 <body>
   <div class='container'>
-    <h2>Trading Sim – Player</h2>
-
     <div id='joinScreen' class='panel'>
-      <h3>Join Simulation</h3>
-      <div class='row'>
-        <input id='room' value='MAIN' placeholder='Simulation code (e.g. MAIN)'/>
-        <input id='name' placeholder='Your name'/>
-        <button class='btn' id='join'>Join</button>
-      </div>
-      <div class='muted'>Enter your simulation and name to continue.</div>
+      <h2>Join Room</h2>
+      <div class='row'><input id='name' placeholder='Your name'/><input id='room' value='MAIN' placeholder='Room code'/><button id='join' class='btn'>Join</button></div>
     </div>
 
     <div id='waitScreen' class='panel hidden'>
-      <h3>Waiting for simulation to start…</h3>
-      <div class='muted'>You are checked in. You will be taken to trading when the host starts.</div>
-      <div class='muted'>Status: <span id='status'>LOBBY</span></div>
-      <div id='players' class='muted'></div>
+      <h3>Waiting for admin to start...</h3>
+      <div>Status: <b id='status'>LOBBY</b></div>
+      <div class='muted' id='players'></div>
     </div>
 
     <div id='app' class='hidden'>
       <div id='negWarn' class='warn hidden'>Cash negative: you must sell assets or wait for profits.</div>
-      <div class='panel row space'><div>Cash: <b id='cash'></b> | Net Worth: <b id='nw'></b> | PnL: <b id='pnl'></b></div></div>
+      <div class='panel row space'>
+        <div>Sim Date: <b id='simDate'>2015-01-01</b> | BTC: <b id='btcPx'>$0</b></div>
+        <div>Cash: <b id='cash'></b> | Net Worth: <b id='nw'></b> | PnL: <b id='pnl'></b></div>
+      </div>
       <div class='tabs'><button class='btn tab' id='tradeTab'>Trade</button><button class='btn alt tab' id='mineTab'>Mine</button></div>
 
       <div id='tradeView' class='panel'>
@@ -39,10 +34,10 @@
       </div>
 
       <div id='mineView' class='panel hidden'>
-        <h3>Mine</h3>
+        <h3>Mine (BTC only output)</h3>
         <div id='regionWrap' class='grid3'></div>
         <div class='row'><select id='rigRegion'></select><select id='rigType'></select><input id='rigCount' type='number' value='1' min='1'/><button class='btn' id='buyRig'>Buy Rig</button><button class='btn alt' id='sellRig'>Sell 1 Matching Rig</button></div>
-        <div class='muted'>Mining produces BTC only. Running costs always apply.</div>
+        <div class='muted'>Running costs apply daily and may drive cash negative.</div>
       </div>
     </div>
   </div>

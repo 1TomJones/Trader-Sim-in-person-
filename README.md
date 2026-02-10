@@ -75,3 +75,36 @@ Admin:
   - Leaderboard fullscreen on projector 1.
   - News feed fullscreen on projector 2.
   - Control panel on operator laptop.
+
+## Realism Mode: 2015–2020
+
+This mode runs the simulation on historical-era pacing and anchors:
+
+- **Sim date starts at `2015-01-01`** and advances **1 day per tick**.
+- Tick speed defaults to **`1000ms/day`** and can be changed live by admin to **`500ms/day`**.
+- **Deterministic sessions** are supported with `SIM_SEED=<number>` (seeded RNG).
+- Data files under `server/data/`:
+  - `btc_usd_daily_2015_2020.csv`
+  - `btc_network_hashrate_monthly_2015_2020.csv`
+  - `events_2015_2020.json`
+
+### Market behavior
+
+- BTC uses a **historical-anchored random walk** with:
+  - random ± step moves,
+  - event-driven directional bias,
+  - magnetic drift toward daily historical target,
+  - yearly regime differences for volatility and drift.
+- Assets unlock over time via scheduled events.
+- Players start with only BTC tradeable; admin/projector receives event headlines.
+
+### Mining realism
+
+- Uses **144 blocks/day**.
+- BTC reward schedule:
+  - 25 BTC until 2016-07-09
+  - 12.5 BTC until 2020-05-11
+  - 6.25 BTC after
+- Mined BTC/day depends on player hashrate share vs modeled network hashrate.
+- Energy cost is charged daily by rig efficiency and region `USD/kWh`.
+- Buying crypto/rigs is blocked when cash is non-positive or purchase would push below zero.

@@ -10,3 +10,24 @@ input,select,textarea{background:#0d1428;color:#fff;border:1px solid #24304f;bor
 .ticker{white-space:nowrap;overflow:hidden;border-top:1px solid #24304f;padding:8px 0}.ticker span{display:inline-block;padding-right:30px;animation:scroll 22s linear infinite}
 @keyframes scroll{0%{transform:translateX(100%)}100%{transform:translateX(-100%)}}
 @media (max-width:700px){.grid,.grid3{grid-template-columns:1fr}}
+
+
+.news-layout{min-height:100vh;padding:12px 20px 0;display:flex;flex-direction:column;gap:12px}
+.topbar{display:flex;justify-content:space-between;align-items:center}
+.topbar h2{margin:0 0 6px}
+.news-logo{height:54px;width:auto;object-fit:contain}
+.grid-news{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;flex:1}
+.news-panel{display:flex;flex-direction:column;min-height:0}
+.news-panel h3{margin-top:0}
+#news{overflow:auto;max-height:62vh;padding-right:6px}
+.badge{background:#1f2b48;border:1px solid #355089;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.tv-chart{height:62vh;min-height:360px;border:1px solid #24304f;border-radius:10px;background:#0d1428}
+.chart-note{margin-bottom:8px}
+#cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.full-width-ticker{width:100%;margin:0;border-radius:10px 10px 0 0}
+.full-width-ticker span{display:inline-block;padding-right:48px;animation:scroll 26s linear infinite}
+
+@media (max-width:1100px){
+  .grid-news{grid-template-columns:1fr;}
+  .tv-chart,#news{max-height:none;height:360px}
+}

@@ -3,22 +3,43 @@
 <head>
   <meta charset='utf-8'/>
   <meta name='viewport' content='width=device-width,initial-scale=1'/>
-  <title>Admin News</title>
+  <title>Kent Invest News Co</title>
   <link rel='stylesheet' href='/client/styles.css'/>
 </head>
 <body>
-  <div class='container'>
-    <div class='panel'>
-      <h2>📰 Live News Feed</h2>
-      <div class='muted'>In-game date: <b id='simDate'>January 1, 2015</b></div>
-    </div>
-    <div class='grid'>
-      <div class='panel'><h3>Headlines</h3><div id='news'></div></div>
-      <div class='panel'><h3>Key Assets</h3><div id='cards'></div></div>
-    </div>
-    <div class='panel ticker'><span id='ticker'></span></div>
+  <div class='news-layout'>
+    <header class='panel topbar'>
+      <div>
+        <h2>Kent Invest News Co</h2>
+        <div class='muted'>In-game date: <b id='simDate'>January 1, 2015</b></div>
+      </div>
+      <img src='/assets/Kent_Invest_Logo.png' alt='Kent Invest logo' class='news-logo'/>
+    </header>
+
+    <main class='grid grid-news'>
+      <section class='panel news-panel'>
+        <h3>Headlines</h3>
+        <div id='news'></div>
+      </section>
+      <section class='panel news-panel'>
+        <h3>Bitcoin Price Chart</h3>
+        <div class='muted chart-note'>TradingView candlesticks (1 week per candle, last 52 weeks in game time)</div>
+        <div id='btcChart' class='tv-chart'></div>
+      </section>
+      <section class='panel news-panel'>
+        <div class='row space'>
+          <h3>Live Prices</h3>
+          <span id='livePricesGroup' class='badge'>Cryptos</span>
+        </div>
+        <div id='cards'></div>
+      </section>
+    </main>
+
+    <footer class='panel ticker full-width-ticker'><span id='ticker'></span></footer>
   </div>
+
   <script src='/socket.io/socket.io.js'></script>
+  <script src='https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js'></script>
   <script type='module' src='/client/admin.js'></script>
 </body>
 </html>

@@ -25,7 +25,9 @@ app.use('/shared', express.static(path.join(__dirname, 'shared')));
 app.get('/healthz', (_req, res) => res.send('ok'));
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'client/player.html')));
 app.get('/player', (_req, res) => res.sendFile(path.join(__dirname, 'client/player.html')));
+app.get('/player/lobby', (_req, res) => res.sendFile(path.join(__dirname, 'client/player.html')));
 app.get('/player/trade', (_req, res) => res.sendFile(path.join(__dirname, 'client/player.html')));
+app.get('/player/mine', (_req, res) => res.sendFile(path.join(__dirname, 'client/player.html')));
 app.get('/admin/leaderboard', (_req, res) => res.sendFile(path.join(__dirname, 'client/admin-leaderboard.html')));
 app.get('/admin/news', (_req, res) => res.sendFile(path.join(__dirname, 'client/admin-news.html')));
 app.get('/admin/control', (_req, res) => res.sendFile(path.join(__dirname, 'client/admin-control.html')));
@@ -39,7 +41,9 @@ function broadcast() {
   const market = engine.marketView();
   io.emit(SERVER_EVENTS.MARKET_TICK, market);
   io.emit(SERVER_EVENTS.LEADERBOARD, { rows: engine.leaderboard() });
-  io.emit(SERVER_EVENTS.NEWS_FEED_UPDATE, { events: engine.news.slice(0, 30), tickers: market.prices, energy: engine.energy, simDate: engine.simDateISO(), unlockedAssets: market.unlockedAssets });
+  io.emit(SERVER_EVENTS.NEWS_FEED_UPDATE, { events: engine.news.slice(0, 30), tickers: market.prices, energy: engine.energy, simDate: engine.simDateISO() });
+  const triggered = engine.consumeTriggeredNews();
+  for (const ev of triggered) io.emit(SERVER_EVENTS.NEWS_EVENT_TRIGGERED, ev);
   io.emit(SERVER_EVENTS.ADMIN_MARKET_STATE, engine.adminMarketState());
   for (const p of engine.players.values()) {
     if (!p.socketId) continue;
@@ -57,7 +61,7 @@ function emitLobby() { io.emit(SERVER_EVENTS.LOBBY_STATE, engine.lobbyView()); }
 function sendErr(socket, message) { socket.emit(SERVER_EVENTS.ERROR, { message }); }
 
 io.on('connection', (socket) => {
-  socket.emit(SERVER_EVENTS.MARKET_TICK, engine.marketView());
+  socket.emit(SERVER_EVENTS.MARKET_TICK, engine.marketView(true));
   socket.emit(SERVER_EVENTS.LEADERBOARD, { rows: engine.leaderboard() });
   socket.emit(SERVER_EVENTS.ADMIN_MARKET_STATE, engine.adminMarketState());
   emitLobby();
@@ -93,7 +97,6 @@ io.on('connection', (socket) => {
   socket.on(CLIENT_EVENTS.BUY_RIG, ({ region, rigType, count }) => { const p = engine.getPlayerBySocket(socket.id); if (!p) return sendErr(socket, 'Join first'); const out = engine.buyRig(p, region, rigType, count); if (!out.ok) sendErr(socket, out.message); });
   socket.on(CLIENT_EVENTS.SELL_RIG, (payload) => { const p = engine.getPlayerBySocket(socket.id); if (!p) return sendErr(socket, 'Join first'); const out = engine.sellRig(p, payload); if (!out.ok) sendErr(socket, out.message); });
 
-  socket.on(CLIENT_EVENTS.ADMIN_CREATE_NEWS, (payload) => { if (!socket.data.isAdmin) return sendErr(socket, 'Admin only'); engine.createNews(payload); });
   socket.on(CLIENT_EVENTS.ADMIN_UPDATE_MARKET, (payload) => { if (!socket.data.isAdmin) return sendErr(socket, 'Admin only'); engine.updateMarketParams(payload); if (payload?.tickMs) restartTickLoop(); });
 
   socket.on('disconnect', () => engine.removeSocket(socket.id));

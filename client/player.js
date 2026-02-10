@@ -1,35 +1,29 @@
 import { CLIENT_EVENTS, SERVER_EVENTS, SIM_STATUS } from '/shared/contracts.mjs';
+import { createBtcCandleChart } from '/client/btc-chart.js';
+
 const socket = io();
-let prices = {};
-let assets = [];
-let rigCatalog = {};
-let regions = [];
 let me = null;
 let hasJoined = false;
 let latestLobbyStatus = SIM_STATUS.LOBBY;
-let unlockedAssets = {};
+let latestTick = null;
+let btcChart = null;
 
 const $ = (id) => document.getElementById(id);
 const fmtDate = (d) => new Date(d).toISOString().slice(0, 10);
+const fmt = (n, d = 2) => Number(n || 0).toFixed(d);
 
 function showPlayerJoin() { $('joinScreen').classList.remove('hidden'); $('waitScreen').classList.add('hidden'); $('app').classList.add('hidden'); }
 function showPlayerWait() { $('joinScreen').classList.add('hidden'); $('waitScreen').classList.remove('hidden'); $('app').classList.add('hidden'); }
 function showPlayerApp() { $('joinScreen').classList.add('hidden'); $('waitScreen').classList.add('hidden'); $('app').classList.remove('hidden'); }
 
 fetch('/api/bootstrap').then((r) => r.json()).then((b) => {
-  assets = b.assets;
-  rigCatalog = b.rigCatalog;
-  regions = b.regions;
-  $('rigType').innerHTML = Object.values(rigCatalog).map((r) => `<option value='${r.key}'>${r.name} ($${r.purchasePrice})</option>`).join('');
-  $('rigRegion').innerHTML = regions.map((r) => `<option>${r}</option>`).join('');
-  renderSymbolOptions();
+  $('rigType').innerHTML = Object.values(b.rigCatalog).map((r) => `<option value='${r.key}'>${r.name} ($${r.purchasePrice})</option>`).join('');
+  $('rigRegion').innerHTML = b.regions.map((r) => `<option>${r}</option>`).join('');
 });
 
-function renderSymbolOptions() {
-  $('symbol').innerHTML = assets.map((a) => {
-    const unlocked = !!unlockedAssets[a.symbol];
-    return `<option value='${a.symbol}' ${unlocked ? '' : 'disabled'}>${a.symbol}${unlocked ? '' : ' (LOCKED)'}</option>`;
-  }).join('');
+function ensureChart() {
+  if (btcChart) return;
+  btcChart = createBtcCandleChart($('playerBtcChart'));
 }
 
 $('join').onclick = () => {
@@ -47,48 +41,60 @@ socket.on(SERVER_EVENTS.LOBBY_STATE, ({ players, status }) => {
 });
 
 socket.on(SERVER_EVENTS.MARKET_TICK, (tick) => {
-  prices = tick.prices;
-  unlockedAssets = tick.unlockedAssets || unlockedAssets;
-  $('simDate').textContent = fmtDate(tick.simDate);
-  $('btcPx').textContent = `$${Number(prices.BTC?.price || 0).toFixed(2)}`;
-  renderSymbolOptions();
-  renderAssets();
+  latestTick = tick;
+  $('simDate').textContent = tick.date;
+  $('btcPx').textContent = `$${fmt(tick.btcPrice, 2)}`;
+  ensureChart();
+  if (tick.last52Candles?.length) btcChart?.setInitialCandles(tick.last52Candles);
+  if (tick.candle) btcChart?.updateCandle(tick.candle);
+  renderMineMetrics();
+  renderTradeEstimate();
 });
-socket.on(SERVER_EVENTS.PLAYER_STATE, (p) => { me = p; unlockedAssets = p.unlockedAssets || unlockedAssets; $('simDate').textContent = fmtDate(p.simDate); renderPlayer(); renderAssets(); renderSymbolOptions(); });
+
+socket.on(SERVER_EVENTS.PLAYER_STATE, (p) => {
+  me = p;
+  $('simDate').textContent = fmtDate(p.simDate);
+  renderPlayer();
+  renderMineMetrics();
+});
 
 function renderPlayer() {
   if (!me) return;
-  $('cash').textContent = `$${me.cash.toFixed(2)}`;
-  $('nw').textContent = `$${me.netWorth.toFixed(2)}`;
-  $('pnl').textContent = `$${me.pnl.toFixed(2)}`;
+  $('cash').textContent = `$${fmt(me.cash)}`;
+  $('nw').textContent = `$${fmt(me.netWorth)}`;
+  $('pnl').textContent = `$${fmt(me.pnl)}`;
+  $('btcQty').textContent = fmt(me.btcQty, 6);
+  $('avgEntry').textContent = `$${fmt(me.avgEntry, 2)}`;
+  $('uPnL').textContent = `$${fmt(me.unrealizedPnL, 2)}`;
+  $('rPnL').textContent = `$${fmt(me.realizedPnL, 2)}`;
   $('negWarn').classList.toggle('hidden', me.cash >= 0);
   $('buy').disabled = me.cash <= 0;
   $('buyRig').disabled = me.cash <= 0;
 }
 
-function renderAssets() {
-  $('assetWrap').innerHTML = assets.map((a) => {
-    const p = prices[a.symbol]?.price ?? a.basePrice;
-    const prev = prices[a.symbol]?.previous ?? p;
-    const up = p >= prev;
-    const own = me?.holdings?.[a.symbol]?.qty || 0;
-    const unlocked = !!unlockedAssets[a.symbol];
-    return `<div class='asset ${unlocked ? '' : 'locked-asset'}'><b>${a.symbol}</b> <span class='muted'>${a.type}</span>${unlocked ? '' : `<span class='badge'>LOCKED</span>`}<div>$${p.toFixed(6)}</div><div class='${up ? 'good' : 'bad'}'>${up ? '▲' : '▼'} ${(p - prev).toFixed(6)}</div><div class='muted'>Owned: ${own.toFixed(5)} ($${(own * p).toFixed(2)})</div></div>`;
-  }).join('');
+function renderTradeEstimate() {
+  const qty = Number($('qty').value || 0);
+  const px = Number(latestTick?.btcPrice || 0);
+  $('usdEstimate').textContent = `$${fmt(qty * px, 2)}`;
 }
 
-$('buy').onclick = () => socket.emit(CLIENT_EVENTS.BUY_CRYPTO, { symbol: $('symbol').value, qty: Number($('qty').value) });
-$('sell').onclick = () => socket.emit(CLIENT_EVENTS.SELL_CRYPTO, { symbol: $('symbol').value, qty: Number($('qty').value) });
+function renderMineMetrics() {
+  if (!me?.miningMetrics) return;
+  const m = me.miningMetrics;
+  $('mineMetrics').innerHTML = `
+    <div class='asset'><b>Hashrate</b><div>Player: ${fmt(m.playerHashrateTHs, 2)} TH/s</div><div>Network: ${fmt(m.networkHashrateTHs, 2)} TH/s</div><div>Share: ${fmt(m.playerSharePct, 6)}%</div></div>
+    <div class='asset'><b>Production</b><div>BTC/day: ${fmt(m.btcMinedPerDay, 6)}</div><div>USD/day: $${fmt(m.usdMinedPerDay, 2)}</div><div>Block reward: ${fmt(m.blockRewardBTC, 2)} BTC</div></div>
+    <div class='asset'><b>Power + Cost</b><div>Power draw: ${fmt(m.totalPowerDrawKW, 2)} kW</div><div>Energy/day: $${fmt(m.dailyEnergyCostUSD, 2)}</div><div>Net/day: $${fmt(m.netMiningProfitUSDPerDay, 2)}</div></div>
+    <div class='asset'><b>Difficulty/Halving</b><div>Difficulty index: ${fmt(m.difficultyIndex, 2)}</div><div>Next halving: ${m.nextHalvingCountdownDays == null ? 'Already occurred' : `${m.nextHalvingCountdownDays} days`}</div></div>
+    <div class='asset'><b>Energy Prices</b><div>ASIA: $${fmt(m.energyPrices.ASIA, 3)}/kWh</div><div>EUROPE: $${fmt(m.energyPrices.EUROPE, 3)}/kWh</div><div>AMERICA: $${fmt(m.energyPrices.AMERICA, 3)}/kWh</div></div>
+  `;
+}
+
+$('qty').oninput = renderTradeEstimate;
+$('buy').onclick = () => socket.emit(CLIENT_EVENTS.BUY_CRYPTO, { symbol: 'BTC', qty: Number($('qty').value) });
+$('sell').onclick = () => socket.emit(CLIENT_EVENTS.SELL_CRYPTO, { symbol: 'BTC', qty: Number($('qty').value) });
 $('buyRig').onclick = () => socket.emit(CLIENT_EVENTS.BUY_RIG, { region: $('rigRegion').value, rigType: $('rigType').value, count: Number($('rigCount').value) });
 $('sellRig').onclick = () => socket.emit(CLIENT_EVENTS.SELL_RIG, { region: $('rigRegion').value, rigType: $('rigType').value, count: 1 });
-
-socket.on(SERVER_EVENTS.ADMIN_MARKET_STATE, (s) => {
-  $('regionWrap').innerHTML = Object.entries(s.energyPrices).map(([r, v]) => {
-    const rigs = me?.rigs?.filter((x) => x.region === r).length || 0;
-    const est = (me?.rigs?.filter((x) => x.region === r).reduce((sum, rig) => sum + ((rig.hashrateTHs * rig.efficiencyWPerTH) / 1000) * 24 * v, 0) || 0).toFixed(2);
-    return `<div class='asset'><b>${r}</b><div>Energy: $${Number(v).toFixed(3)}/kWh</div><div class='muted'>Your rigs: ${rigs}</div><div class='muted'>~Daily cost: $${est}</div></div>`;
-  }).join('');
-});
 
 $('tradeTab').onclick = () => { $('tradeView').classList.remove('hidden'); $('mineView').classList.add('hidden'); $('tradeTab').className = 'btn tab'; $('mineTab').className = 'btn alt tab'; };
 $('mineTab').onclick = () => { $('mineView').classList.remove('hidden'); $('tradeView').classList.add('hidden'); $('mineTab').className = 'btn tab'; $('tradeTab').className = 'btn alt tab'; };

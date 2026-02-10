@@ -3,34 +3,31 @@
 <head>
   <meta charset='utf-8'/>
   <meta name='viewport' content='width=device-width,initial-scale=1'/>
-  <title>Kent Invest News Co</title>
+  <title>BTC News Board</title>
   <link rel='stylesheet' href='/client/styles.css'/>
 </head>
 <body>
   <div class='news-layout'>
     <header class='panel topbar'>
       <div>
-        <h2>Kent Invest News Co</h2>
-        <div class='muted'>In-game date: <b id='simDate'>January 1, 2015</b></div>
+        <h2>Kent Invest BTC Desk</h2>
+        <div class='muted'>In-game date: <b id='simDate'>2013-01-01</b></div>
       </div>
       <img src='/assets/Kent_Invest_Logo.png' alt='Kent Invest logo' class='news-logo'/>
     </header>
 
     <main class='grid grid-news'>
       <section class='panel news-panel'>
-        <h3>Headlines</h3>
+        <h3>Headlines (2013-2017)</h3>
         <div id='news'></div>
       </section>
       <section class='panel news-panel'>
-        <h3>Bitcoin Price Chart</h3>
-        <div class='muted chart-note'>TradingView candlesticks (1 week per candle, last 52 weeks in game time)</div>
+        <h3>Bitcoin Daily Candles</h3>
+        <div class='muted chart-note'>TradingView candlesticks (last 52 daily bars preload + live daily updates)</div>
         <div id='btcChart' class='tv-chart'></div>
       </section>
       <section class='panel news-panel'>
-        <div class='row space'>
-          <h3>Live Prices</h3>
-          <span id='livePricesGroup' class='badge'>Cryptos</span>
-        </div>
+        <h3>Ticker Cards</h3>
         <div id='cards'></div>
       </section>
     </main>

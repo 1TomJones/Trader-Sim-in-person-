@@ -254,7 +254,7 @@
       <div class="panel-header"><h2>Players</h2></div>
       <div class="panel-body">
         <table id="leaderboard">
-          <thead><tr><th>Name</th><th>Position</th><th>PnL</th></tr></thead>
+          <thead><tr><th>Name</th><th>Position</th><th>PnL</th><th>BTC Owned</th><th>Mining Capacity (TH/s)</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -320,6 +320,7 @@
 
     let currentMode = 'news';
     let pricePoints = [];
+    let fairPoints = [];
     let yLo = null, yHi = null;
     let bookSnapshot = null;
     let botSummary = [];
@@ -1375,7 +1376,7 @@
     });
 
     function drawChart(){
-      if (!chartCtx || pricePoints.length < 2) {
+      if (!chartCtx || pricePoints.length < 2 || fairPoints.length < 2) {
         chartCtx?.clearRect(0,0,chartCanvas.width, chartCanvas.height);
         if (domOverlay) domOverlay.innerHTML = '';
         return;
@@ -1391,9 +1392,13 @@
       for(let i=1;i<=3;i++){ const y=(h/4)*i; chartCtx.moveTo(0,y); chartCtx.lineTo(w,y); }
       chartCtx.stroke();
 
-      const view = pricePoints.slice(-600);
-      const rawLo = Math.min(...view);
-      const rawHi = Math.max(...view);
+      const viewPrice = pricePoints.slice(-600);
+      const viewFair = fairPoints.slice(-600);
+      const view = viewPrice.map((price, i) => ({ price, fair: viewFair[i] }));
+      const values = view.flatMap((v) => [v.price, v.fair]).filter((v) => Number.isFinite(v));
+      if (!values.length) return;
+      const rawLo = Math.min(...values);
+      const rawHi = Math.max(...values);
       const pad = Math.max(0.25, (rawHi - rawLo) * 0.12);
       const tgtLo = rawLo - pad;
       const tgtHi = rawHi + pad;
@@ -1405,16 +1410,23 @@
       const X = i => (i/(view.length-1||1)) * w;
       const Y = p => h - ((p - yLo)/Math.max(1e-6,(yHi - yLo))) * h;
 
-      chartCtx.strokeStyle = '#6da8ff';
+      chartCtx.strokeStyle = '#ffd84d';
       chartCtx.lineWidth = 2;
       chartCtx.beginPath();
-      chartCtx.moveTo(0, Y(view[0]));
-      for (let i=1;i<view.length;i++) chartCtx.lineTo(X(i), Y(view[i]));
+      chartCtx.moveTo(0, Y(view[0].price));
+      for (let i=1;i<view.length;i++) chartCtx.lineTo(X(i), Y(view[i].price));
       chartCtx.stroke();
 
-      chartCtx.fillStyle = '#fff';
+      chartCtx.strokeStyle = '#ff4d4d';
+      chartCtx.lineWidth = 2;
       chartCtx.beginPath();
-      chartCtx.arc(X(view.length-1), Y(view[view.length-1]), 3, 0, Math.PI*2);
+      chartCtx.moveTo(0, Y(view[0].fair));
+      for (let i=1;i<view.length;i++) chartCtx.lineTo(X(i), Y(view[i].fair));
+      chartCtx.stroke();
+
+      chartCtx.fillStyle = '#ffd84d';
+      chartCtx.beginPath();
+      chartCtx.arc(X(view.length-1), Y(view[view.length-1].price), 3, 0, Math.PI*2);
       chartCtx.fill();
 
       renderDomOverlay();
@@ -1500,7 +1512,9 @@
         const nameHtml = r.isBot ? `${r.name} <span class="pill pill-bot">BOT</span>` : r.name;
         const position = formatExposure(r.position ?? 0);
         const pnl = Number(r.pnl || 0).toFixed(2);
-        tr.innerHTML = `<td>${nameHtml}</td><td>${position}</td><td>${pnl}</td>`;
+        const btcOwned = Number(r.btcOwned || 0).toFixed(8);
+        const miningCapacityTHs = Number(r.miningCapacityTHs || 0).toFixed(2);
+        tr.innerHTML = `<td>${nameHtml}</td><td>${position}</td><td>${pnl}</td><td>${btcOwned}</td><td>${miningCapacityTHs}</td>`;
         tbody.appendChild(tr);
       });
     });
@@ -1518,24 +1532,36 @@
         pricePoints.push(price);
         if (pricePoints.length > 720) pricePoints = pricePoints.slice(-720);
         lastLbl.textContent = price.toFixed(2);
-        scheduleDraw();
       }
 
       if (typeof fair === 'number') {
+        fairPoints.push(fair);
+        if (fairPoints.length > 720) fairPoints = fairPoints.slice(-720);
         fairLbl.textContent = fair.toFixed(2);
       }
+
+      const aligned = Math.min(pricePoints.length, fairPoints.length);
+      if (aligned > 0 && (pricePoints.length !== aligned || fairPoints.length !== aligned)) {
+        pricePoints = pricePoints.slice(-aligned);
+        fairPoints = fairPoints.slice(-aligned);
+      }
+      scheduleDraw();
     });
 
     socket.on('gameStarted', ({ priceMode, price, fairValue })=>{
       pricePoints = [];
+      fairPoints = [];
       yLo = yHi = null;
       if (typeof price === 'number') {
         pricePoints.push(price);
         lastLbl.textContent = price.toFixed(2);
-      } else if (typeof fairValue === 'number') {
-        pricePoints.push(fairValue);
       }
-      if (typeof fairValue === 'number') fairLbl.textContent = fairValue.toFixed(2);
+      if (typeof fairValue === 'number') {
+        fairPoints.push(fairValue);
+        fairLbl.textContent = fairValue.toFixed(2);
+      }
+      if (!pricePoints.length && fairPoints.length) pricePoints.push(fairPoints[0]);
+      if (!fairPoints.length && pricePoints.length) fairPoints.push(pricePoints[0]);
       if (priceMode) updateModeUi(priceMode);
       scheduleDraw();
       renderAdminBook(null);
@@ -1543,6 +1569,7 @@
 
     socket.on('gameReset', () => {
       pricePoints = [];
+      fairPoints = [];
       yLo = yHi = null;
       lastLbl.textContent = '–';
       fairLbl.textContent = '–';

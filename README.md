@@ -9,6 +9,7 @@ This sim is now **Bitcoin-only**.
 - Default speed: **1 day/sec** (`tickMs=1000`)
 - Fast speed: **2 days/sec** (`tickMs=500`)
 - Optional deterministic runs: `SIM_SEED=<number>`
+- Player starting cash: **$10,000**
 
 ## Routes
 
@@ -30,9 +31,34 @@ This sim is now **Bitcoin-only**.
 
 ## Data files
 
-- `server/data/btc_usd_daily_2013_2017.csv`
 - `server/data/network_hashrate_monthly_2013_2017.csv`
 - `server/data/events_2013_2017.json`
+- `server/data/fair_value_schedule_2013_2017.json`
+
+## Price Engine: Fair Value Mean-Reverting Probabilities + OHLC
+
+- Engine maintains:
+  - `marketPrice` (tradable BTC price)
+  - `fairValue` (hidden anchor, admin-visible only)
+- **Future day generation** (simulation ticks):
+  - Each day uses **12 intraday sub-steps** to form true OHLC candles.
+  - Base probability is 50/50 up/down per sub-step.
+  - If market deviates from fair value by more than 5%, probabilities shift toward mean reversion:
+    - `shift = (absDevPct - 5) * 0.02`
+    - bounded to keep probabilities in `[0.05, 0.95]`
+- **Daily step sizing**:
+  - `dailyStepUSD = max(1, round(price * dailyStepPct * volatilityMultiplier))`
+  - `subStepUSD = max(1, round(dailyStepUSD / sqrt(N)))`
+- **Historical preload (generated, not CSV)**:
+  - On sim start, 52 prior daily candles are generated at runtime.
+  - History uses separate probabilities: `P(down)=0.65`, `P(up)=0.35`.
+  - Both player and admin charts receive these 52 bars on initial sync.
+- Candle timestamps are UNIX seconds at day start (`00:00:00 UTC`).
+- Dev assertions validate:
+  - candle bounds (`open/close` within `[low, high]`)
+  - `high >= low`
+  - exact 1-day candle time increments
+  - probability bounds and normalization
 
 ## Candle preload behavior
 
@@ -51,3 +77,5 @@ Env vars:
 - `DB_PATH` (default `./data/sim.db`)
 - `TICK_MS` (default `1000`)
 - `SIM_SEED` (optional)
+- `DAILY_STEP_PCT` (optional, default `0.012`)
+- `VOLATILITY_MULTIPLIER` (optional, default `1`)

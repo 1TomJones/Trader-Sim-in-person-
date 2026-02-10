@@ -27,6 +27,7 @@ if ($('setTickSpeed')) $('setTickSpeed').onclick = () => socket.emit(CLIENT_EVEN
 socket.on(SERVER_EVENTS.MARKET_TICK, (tick) => {
   ensureChart();
   if (tick.last52Candles?.length) chart?.setInitialCandles(tick.last52Candles);
+  if (tick.partialCandle) chart?.updateCandle(tick.partialCandle);
   if (tick.candle) chart?.updateCandle(tick.candle);
 });
 
@@ -71,6 +72,9 @@ socket.on(SERVER_EVENTS.NEWS_EVENT_TRIGGERED, (e) => {
 socket.on(SERVER_EVENTS.ADMIN_MARKET_STATE, (s) => {
   latestMarketState = s;
   if ($('positions')) $('positions').textContent = JSON.stringify(s.positionsSummary, null, 2);
+  if ($('fairValueReadout')) $('fairValueReadout').textContent = `$${Number(s.perAsset?.[0]?.fairValue || 0).toFixed(2)}`;
+  if ($('dailyStepPct') && s.stepConfig?.dailyStepPct) $('dailyStepPct').value = String(s.stepConfig.dailyStepPct);
+  if ($('volatilityMultiplier') && s.stepConfig?.volatilityMultiplier) $('volatilityMultiplier').value = String(s.stepConfig.volatilityMultiplier);
   if ($('elog')) $('elog').textContent = s.eventLog.map((e) => `${new Date(e.t).toLocaleTimeString()} ${e.message}`).join('\n');
   if ($('tickSpeed')) $('tickSpeed').value = String(s.simState.tickMs || 1000);
   if ($('energyControls')) {
@@ -82,6 +86,8 @@ if ($('applyParams')) {
   $('applyParams').onclick = () => {
     if (!latestMarketState) return;
     const energy = Object.keys(latestMarketState.energyPrices).map((r) => ({ region: r, energyPriceUSD: Number(document.querySelector(`[data-energy='${r}']`).value) }));
-    socket.emit(CLIENT_EVENTS.ADMIN_UPDATE_MARKET, { energy });
+    const dailyStepPct = Number($('dailyStepPct')?.value || 0);
+    const volatilityMultiplier = Number($('volatilityMultiplier')?.value || 0);
+    socket.emit(CLIENT_EVENTS.ADMIN_UPDATE_MARKET, { energy, dailyStepPct, volatilityMultiplier });
   };
 }

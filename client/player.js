@@ -46,6 +46,7 @@ socket.on(SERVER_EVENTS.MARKET_TICK, (tick) => {
   $('btcPx').textContent = `$${fmt(tick.btcPrice, 2)}`;
   ensureChart();
   if (tick.last52Candles?.length) btcChart?.setInitialCandles(tick.last52Candles);
+  if (tick.partialCandle) btcChart?.updateCandle(tick.partialCandle);
   if (tick.candle) btcChart?.updateCandle(tick.candle);
   renderMineMetrics();
   renderTradeEstimate();

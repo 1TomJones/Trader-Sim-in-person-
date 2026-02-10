@@ -33,6 +33,9 @@
       <div class='grid'>
         <div class='panel'>
           <h3>Energy Controls</h3>
+          <div class='asset'><b>Hidden Fair Value (admin-only)</b><div id='fairValueReadout'>$0.00</div></div>
+          <div class='row'><span style='width:150px'>Daily Step %</span><input id='dailyStepPct' type='number' step='0.001' min='0.001'/></div>
+          <div class='row'><span style='width:150px'>Volatility Multiplier</span><input id='volatilityMultiplier' type='number' step='0.1' min='0.1'/></div>
           <div id='energyControls'></div>
           <button class='btn' id='applyParams'>Apply</button>
         </div>

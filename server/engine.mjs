@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { ASSETS, REGIONS, RIG_CATALOG, SIM_STATUS } from '../shared/contracts.mjs';
 
-const STARTING_CASH = 100000;
+const STARTING_CASH = 10000;
 const ROOM_ID = 'MAIN';
 const BLOCKS_PER_DAY = 144;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -11,20 +11,22 @@ const SIM_START_DATE_UTC = Date.UTC(2013, 0, 1);
 const SIM_END_DATE_UTC = Date.UTC(2017, 11, 31);
 const EPS = 0.00000001;
 
-const BASE_ENERGY = { ASIA: 0.09, EUROPE: 0.17, AMERICA: 0.12 };
+const HISTORY_BARS = 52;
+const INTRADAY_STEPS = 12;
+const HISTORY_DOWN_PROB = 0.65;
+const FAIR_VALUE_BAND_PCT = 5;
+const FAIR_VALUE_SHIFT_PER_PCT = 0.02;
+const MIN_PROB = 0.05;
+const MAX_PROB = 0.95;
+const BASE_DAILY_STEP_PCT = 0.012;
 
-const YEAR_REGIMES = {
-  2013: { stepPct: 0.05, magnetK: 0.08, maxDriftPct: 0.11 },
-  2014: { stepPct: 0.025, magnetK: 0.07, maxDriftPct: 0.08 },
-  2015: { stepPct: 0.012, magnetK: 0.06, maxDriftPct: 0.04 },
-  2016: { stepPct: 0.015, magnetK: 0.06, maxDriftPct: 0.05 },
-  2017: { stepPct: 0.045, magnetK: 0.04, maxDriftPct: 0.12 },
-};
+const BASE_ENERGY = { ASIA: 0.09, EUROPE: 0.17, AMERICA: 0.12 };
 
 const uuid = () => crypto.randomUUID();
 const toISODate = (ms) => new Date(ms).toISOString().slice(0, 10);
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 const clampMin = (v, min) => Math.max(min, v);
+const IS_DEV = process.env.NODE_ENV !== 'production';
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -47,6 +49,11 @@ function parseCsv(filePath) {
   });
 }
 
+function invariant(condition, message) {
+  if (!IS_DEV) return;
+  if (!condition) throw new Error(`[PriceEngine invariant] ${message}`);
+}
+
 export class SimEngine {
   constructor(db, opts = {}) {
     this.db = db;
@@ -54,36 +61,46 @@ export class SimEngine {
     this.rng = opts.seed != null ? mulberry32(Number(opts.seed)) : Math.random;
     this.state = { roomId: ROOM_ID, status: SIM_STATUS.LOBBY, startedAt: null, tick: 0 };
 
-    this.btcSeries = this.loadBtcSeries();
-    this.seriesDates = [...this.btcSeries.keys()].sort();
     this.networkHashrateSeries = this.loadHashrateSeries();
     this.scheduledEvents = this.loadEvents();
     this.nextScheduledEventIdx = 0;
-
     this.players = new Map();
     this.socketToPlayer = new Map();
-    this.market = new Map(ASSETS.map((a) => [a.symbol, { ...a, lastPrice: a.basePrice, previousPrice: a.basePrice, biasDirection: null, biasStrength: 0, biasUntilTick: -1, magnetAdjust: 1, updatedAt: Date.now() }]));
 
-    const btcStart = this.btcSeries.get('2013-01-01');
-    if (btcStart) {
-      this.market.get('BTC').lastPrice = btcStart;
-      this.market.get('BTC').previousPrice = btcStart;
-    }
+    this.dailyStepPct = Number(opts.dailyStepPct ?? process.env.DAILY_STEP_PCT ?? BASE_DAILY_STEP_PCT);
+    this.volatilityMultiplier = Number(opts.volatilityMultiplier ?? process.env.VOLATILITY_MULTIPLIER ?? 1);
+
+    this.fairValueSchedule = this.loadFairValueSchedule();
+    const startFairValue = this.fairValueForDateMs(SIM_START_DATE_UTC);
+
+    this.market = new Map(ASSETS.map((a) => [a.symbol, {
+      ...a,
+      lastPrice: startFairValue,
+      previousPrice: startFairValue,
+      fairValue: startFairValue,
+      updatedAt: Date.now(),
+    }]));
 
     this.energy = { ...BASE_ENERGY };
     this.energyModifiers = [];
-    this.volatilityBoosts = [];
-    this.magnetAdjusters = [];
     this.news = [];
     this.adminLog = [];
     this.rate = new Map();
     this.lastTriggeredNews = [];
-    this.persistMarket();
-  }
 
-  loadBtcSeries() {
-    const rows = parseCsv(path.join(process.cwd(), 'server', 'data', 'btc_usd_daily_2013_2017.csv'));
-    return new Map(rows.map((r) => [r.date, Number(r.close)]));
+    const history = this.generateHistoricalCandles({
+      endDateExclusiveMs: SIM_START_DATE_UTC,
+      bars: HISTORY_BARS,
+      anchorPrice: startFairValue,
+      downProb: HISTORY_DOWN_PROB,
+    });
+    this.last52Candles = history.candles;
+    this.market.get('BTC').lastPrice = history.startPrice;
+    this.market.get('BTC').previousPrice = history.startPrice;
+    this.latestCompletedCandle = null;
+    this.lastCandleTimeSec = this.last52Candles.at(-1)?.time ?? null;
+
+    this.persistMarket();
   }
 
   loadHashrateSeries() {
@@ -97,37 +114,168 @@ export class SimEngine {
     return JSON.parse(fs.readFileSync(p, 'utf8')).sort((a, b) => a.date.localeCompare(b.date));
   }
 
+  loadFairValueSchedule() {
+    const p = path.join(process.cwd(), 'server', 'data', 'fair_value_schedule_2013_2017.json');
+    if (!fs.existsSync(p)) throw new Error('Missing fair value schedule file: server/data/fair_value_schedule_2013_2017.json');
+    const rows = JSON.parse(fs.readFileSync(p, 'utf8'));
+    return rows
+      .map((row) => ({ ...row, timeMs: Date.parse(`${row.date}T00:00:00.000Z`) }))
+      .sort((a, b) => a.timeMs - b.timeMs);
+  }
+
+  fairValueForDateMs(dateMs) {
+    const t = dateMs;
+    const points = this.fairValueSchedule;
+    if (t <= points[0].timeMs) return Number(points[0].fairValueUSD);
+    if (t >= points.at(-1).timeMs) return Number(points.at(-1).fairValueUSD);
+    for (let i = 0; i < points.length - 1; i += 1) {
+      const a = points[i];
+      const b = points[i + 1];
+      if (t >= a.timeMs && t <= b.timeMs) {
+        const spanDays = Math.max(1, Math.round((b.timeMs - a.timeMs) / DAY_MS));
+        const elapsedDays = Math.round((t - a.timeMs) / DAY_MS);
+        const ratio = elapsedDays / spanDays;
+        return Number((a.fairValueUSD + (b.fairValueUSD - a.fairValueUSD) * ratio).toFixed(6));
+      }
+    }
+    return Number(points.at(-1).fairValueUSD);
+  }
+
   currentSimDateMs() {
     return Math.min(SIM_END_DATE_UTC, SIM_START_DATE_UTC + this.state.tick * DAY_MS);
   }
 
   simDateISO() { return new Date(this.currentSimDateMs()).toISOString(); }
 
-  initialCandles52() {
-    const idx = Math.max(51, this.state.tick);
-    const start = Math.max(0, idx - 51);
-    const out = [];
-    for (let i = start; i <= idx; i += 1) {
-      const date = this.seriesDates[i];
-      if (!date) continue;
-      const close = this.btcSeries.get(date);
-      out.push({ time: Math.floor(Date.parse(`${date}T00:00:00.000Z`) / 1000), open: close, high: close, low: close, close });
-    }
-    return out;
+  partialCurrentDayCandle() {
+    const timeSec = Math.floor(this.currentSimDateMs() / 1000);
+    const p = this.market.get('BTC').lastPrice;
+    return { time: timeSec, open: p, high: p, low: p, close: p };
   }
 
-  dailyCandle() {
-    const d = this.simDateISO().slice(0, 10);
-    const p = this.market.get('BTC').lastPrice;
-    return { time: Math.floor(Date.parse(`${d}T00:00:00.000Z`) / 1000), open: p, high: p, low: p, close: p };
+  initialCandles52() {
+    return this.last52Candles;
+  }
+
+  computeFairValueReversionProbabilities(marketPrice, fairValue) {
+    const devPct = ((marketPrice - fairValue) / fairValue) * 100;
+    const absDev = Math.abs(devPct);
+    let upProb = 0.5;
+    let downProb = 0.5;
+
+    if (absDev > FAIR_VALUE_BAND_PCT) {
+      const extra = absDev - FAIR_VALUE_BAND_PCT;
+      const shift = extra * FAIR_VALUE_SHIFT_PER_PCT;
+      if (devPct < 0) {
+        upProb = clamp(0.5 + shift, MIN_PROB, MAX_PROB);
+        downProb = clamp(0.5 - shift, MIN_PROB, MAX_PROB);
+      } else {
+        upProb = clamp(0.5 - shift, MIN_PROB, MAX_PROB);
+        downProb = clamp(0.5 + shift, MIN_PROB, MAX_PROB);
+      }
+    }
+
+    const sum = upProb + downProb;
+    upProb /= sum;
+    downProb = 1 - upProb;
+
+    invariant(upProb >= MIN_PROB - 1e-9 && upProb <= MAX_PROB + 1e-9, `upProb out of bounds: ${upProb}`);
+    invariant(downProb >= MIN_PROB - 1e-9 && downProb <= MAX_PROB + 1e-9, `downProb out of bounds: ${downProb}`);
+    invariant(Math.abs((upProb + downProb) - 1) < 1e-9, `probabilities must sum to 1, got ${upProb + downProb}`);
+
+    return { upProb, downProb, devPct };
+  }
+
+  simulateIntradayCandle({ dateMs, openingPrice, dailyStepUSD, directionMode = 'fair', historyDownProb = HISTORY_DOWN_PROB, fairValue }) {
+    const subStepUSD = Math.max(1, Math.round(dailyStepUSD / Math.sqrt(INTRADAY_STEPS))); // sqrt keeps intraday range lively without exploding variance.
+    let price = openingPrice;
+    let high = price;
+    let low = price;
+
+    for (let i = 0; i < INTRADAY_STEPS; i += 1) {
+      let upProb = 0.5;
+      if (directionMode === 'history') {
+        upProb = 1 - historyDownProb;
+      } else {
+        upProb = this.computeFairValueReversionProbabilities(price, fairValue).upProb;
+      }
+      const signed = this.rng() < upProb ? subStepUSD : -subStepUSD;
+      price = clampMin(price + signed, EPS);
+      high = Math.max(high, price);
+      low = Math.min(low, price);
+    }
+
+    const candle = {
+      time: Math.floor(dateMs / 1000),
+      open: Number(openingPrice.toFixed(6)),
+      high: Number(high.toFixed(6)),
+      low: Number(low.toFixed(6)),
+      close: Number(price.toFixed(6)),
+    };
+    this.assertCandle(candle);
+    return candle;
+  }
+
+  generateHistoricalCandles({ endDateExclusiveMs, bars, anchorPrice, downProb }) {
+    let nextDayOpenPrice = anchorPrice;
+    const reverseChronological = [];
+
+    for (let i = 1; i <= bars; i += 1) {
+      const dayMs = endDateExclusiveMs - i * DAY_MS;
+      const close = nextDayOpenPrice;
+      const dailyStepUSD = Math.max(1, Math.round(close * this.dailyStepPct * this.volatilityMultiplier));
+      const subStepUSD = Math.max(1, Math.round(dailyStepUSD / Math.sqrt(INTRADAY_STEPS)));
+
+      let reversePrice = close;
+      let high = reversePrice;
+      let low = reversePrice;
+      for (let j = 0; j < INTRADAY_STEPS; j += 1) {
+        const forwardDown = this.rng() < downProb;
+        const reverseMove = forwardDown ? subStepUSD : -subStepUSD;
+        reversePrice = clampMin(reversePrice + reverseMove, EPS);
+        high = Math.max(high, reversePrice);
+        low = Math.min(low, reversePrice);
+      }
+
+      const open = reversePrice;
+      const candle = {
+        time: Math.floor(dayMs / 1000),
+        open: Number(open.toFixed(6)),
+        high: Number(high.toFixed(6)),
+        low: Number(low.toFixed(6)),
+        close: Number(close.toFixed(6)),
+      };
+      this.assertCandle(candle);
+      reverseChronological.push(candle);
+      nextDayOpenPrice = open;
+    }
+
+    const candles = reverseChronological.reverse();
+    this.assertCandleTimeSequence(candles.map((c) => c.time));
+    return { candles, startPrice: anchorPrice };
+  }
+
+  assertCandle(candle) {
+    invariant(candle.high >= candle.low, `high < low at ${candle.time}`);
+    invariant(candle.open >= candle.low && candle.open <= candle.high, `open outside range at ${candle.time}`);
+    invariant(candle.close >= candle.low && candle.close <= candle.high, `close outside range at ${candle.time}`);
+  }
+
+  assertCandleTimeSequence(times) {
+    if (!IS_DEV) return;
+    for (let i = 1; i < times.length; i += 1) {
+      invariant(times[i] - times[i - 1] === 86400, `candle time must increment by 1 day (${times[i - 1]} -> ${times[i]})`);
+    }
   }
 
   addPlayer({ socketId, name }) {
-    let pid = this.socketToPlayer.get(socketId);
+    let pid = this.socketToPlayer?.get(socketId);
     if (pid && this.players.has(pid)) {
       this.players.get(pid).socketId = socketId;
       return this.players.get(pid);
     }
+    if (!this.socketToPlayer) this.socketToPlayer = new Map();
+    if (!this.players) this.players = new Map();
     const id = uuid();
     const createdAt = Date.now();
     const player = {
@@ -194,18 +342,6 @@ export class SimEngine {
     this.news = this.news.slice(0, 200);
 
     const { effects = {} } = ev;
-    if (effects.biasDirection) {
-      const m = this.market.get('BTC');
-      m.biasDirection = effects.biasDirection;
-      m.biasStrength = Number(effects.biasStrength || 0);
-      m.biasUntilTick = this.state.tick + Number(effects.durationDays || 1);
-    }
-    if (effects.volatilityBoost) {
-      this.volatilityBoosts.push({ multiplier: Number(effects.volatilityBoost), untilTick: this.state.tick + Number(effects.durationDays || 7) });
-    }
-    if (effects.magnetAdjust) {
-      this.magnetAdjusters.push({ adjust: Number(effects.magnetAdjust), untilTick: this.state.tick + Number(effects.durationDays || 7) });
-    }
     if (effects.energyDelta) {
       const regions = effects.energyDelta.regions || REGIONS;
       for (const region of regions) {
@@ -221,8 +357,7 @@ export class SimEngine {
     return out;
   }
 
-  applyScheduledEvents() {
-    const simDate = toISODate(this.currentSimDateMs());
+  applyScheduledEvents(simDate) {
     while (this.nextScheduledEventIdx < this.scheduledEvents.length && this.scheduledEvents[this.nextScheduledEventIdx].date <= simDate) {
       const ev = this.scheduledEvents[this.nextScheduledEventIdx];
       if (ev.date === simDate) this.triggerEvent(ev);
@@ -230,54 +365,50 @@ export class SimEngine {
     }
   }
 
-  applyEnergyAndRegimes() {
+  applyEnergyModifiers() {
     this.energy = { ...BASE_ENERGY };
     this.energyModifiers = this.energyModifiers.filter((m) => m.untilTick > this.state.tick);
-    this.volatilityBoosts = this.volatilityBoosts.filter((m) => m.untilTick > this.state.tick);
-    this.magnetAdjusters = this.magnetAdjusters.filter((m) => m.untilTick > this.state.tick);
     for (const mod of this.energyModifiers) this.energy[mod.region] = Math.max(0.02, this.energy[mod.region] + mod.delta);
   }
 
-  priceStep(asset) {
+  simulateCurrentDayCandle() {
     const simDateMs = this.currentSimDateMs();
-    const year = new Date(simDateMs).getUTCFullYear();
-    const regime = YEAR_REGIMES[year] || YEAR_REGIMES[2017];
-    const extraVol = this.volatilityBoosts.reduce((acc, x) => acc * x.multiplier, 1);
-    const stepPct = regime.stepPct * extraVol;
-    const stepSizeUSD = Math.max(1, Math.round(asset.lastPrice * stepPct));
+    const btc = this.market.get('BTC');
+    btc.previousPrice = btc.lastPrice;
+    btc.fairValue = this.fairValueForDateMs(simDateMs);
 
-    let upProb = 0.5;
-    const biasActive = asset.biasUntilTick >= this.state.tick;
-    if (biasActive) {
-      const delta = clamp(asset.biasStrength, 0, 0.45);
-      upProb = asset.biasDirection === 'UP' ? 0.5 + delta : 0.5 - delta;
-    }
-    const signedStep = this.rng() < upProb ? stepSizeUSD : -stepSizeUSD;
+    const dailyStepUSD = Math.max(1, Math.round(btc.lastPrice * this.dailyStepPct * this.volatilityMultiplier));
+    const candle = this.simulateIntradayCandle({
+      dateMs: simDateMs,
+      openingPrice: btc.lastPrice,
+      dailyStepUSD,
+      directionMode: 'fair',
+      fairValue: btc.fairValue,
+    });
+    btc.lastPrice = candle.close;
+    btc.updatedAt = Date.now();
 
-    const dateKey = toISODate(simDateMs);
-    const targetPrice = this.btcSeries.get(dateKey) ?? asset.lastPrice;
-    const maxDrift = asset.lastPrice * regime.maxDriftPct;
-    const magnetAdjust = this.magnetAdjusters.reduce((acc, m) => acc * m.adjust, 1);
-    const driftTowardTarget = clamp((targetPrice - asset.lastPrice) * regime.magnetK * magnetAdjust, -maxDrift, +maxDrift);
-
-    asset.previousPrice = asset.lastPrice;
-    asset.lastPrice = clampMin(asset.lastPrice + signedStep + driftTowardTarget, EPS);
-    asset.updatedAt = Date.now();
+    if (this.lastCandleTimeSec != null) invariant(candle.time - this.lastCandleTimeSec === 86400, `daily candle time jump must be 1 day (${this.lastCandleTimeSec} -> ${candle.time})`);
+    this.lastCandleTimeSec = candle.time;
+    this.latestCompletedCandle = candle;
+    return candle;
   }
 
   stepTick() {
     if (this.state.status !== SIM_STATUS.RUNNING) return;
-    if (this.currentSimDateMs() >= SIM_END_DATE_UTC) {
+    if (this.currentSimDateMs() > SIM_END_DATE_UTC) {
       this.end();
       return;
     }
-    this.state.tick += 1;
-    this.applyScheduledEvents();
-    this.applyEnergyAndRegimes();
 
-    this.priceStep(this.market.get('BTC'));
+    const simDate = toISODate(this.currentSimDateMs());
+    this.applyScheduledEvents(simDate);
+    this.applyEnergyModifiers();
+    this.simulateCurrentDayCandle();
 
     for (const p of this.players.values()) this.applyMiningForPlayer(p);
+
+    this.state.tick += 1;
     this.persistWalletsAndHoldings();
     if (this.state.tick % 10 === 0) this.persistSnapshot();
     this.persistMarket();
@@ -396,6 +527,8 @@ export class SimEngine {
 
   updateMarketParams(payload) {
     if (payload?.tickMs) this.setTickMs(Number(payload.tickMs));
+    if (Number(payload?.dailyStepPct) > 0) this.dailyStepPct = Number(payload.dailyStepPct);
+    if (Number(payload?.volatilityMultiplier) > 0) this.volatilityMultiplier = Number(payload.volatilityMultiplier);
     for (const e of payload?.energy || []) if (REGIONS.includes(e.region) && Number(e.energyPriceUSD) > 0) this.energy[e.region] = Number(e.energyPriceUSD);
     this.logAdmin('Market params updated');
   }
@@ -451,8 +584,8 @@ export class SimEngine {
     return {
       date: toISODate(this.currentSimDateMs()),
       btcPrice: btc.lastPrice,
-      candle: this.dailyCandle(),
-      ...(includeHistory ? { last52Candles: this.initialCandles52() } : {}),
+      candle: this.latestCompletedCandle ?? this.partialCurrentDayCandle(),
+      ...(includeHistory ? { last52Candles: this.initialCandles52(), partialCandle: this.partialCurrentDayCandle() } : {}),
       blockReward: this.blockRewardForDate(this.currentSimDateMs()),
       networkHashrate: this.networkHashrateTHs(this.currentSimDateMs()),
       energyPrices: this.energy,
@@ -465,8 +598,9 @@ export class SimEngine {
   adminMarketState() {
     const m = this.market.get('BTC');
     return {
-      perAsset: [{ symbol: 'BTC', lastPrice: m.lastPrice, biasDirection: m.biasDirection, biasStrength: m.biasStrength, biasUntilTick: m.biasUntilTick, unlocked: true }],
+      perAsset: [{ symbol: 'BTC', lastPrice: m.lastPrice, fairValue: m.fairValue, unlocked: true }],
       energyPrices: this.energy,
+      stepConfig: { dailyStepPct: this.dailyStepPct, volatilityMultiplier: this.volatilityMultiplier, intradaySteps: INTRADAY_STEPS },
       positionsSummary: this.positionsSummary(),
       simState: { ...this.state, simDate: this.simDateISO(), tickMs: this.tickMs, networkHashrateTHs: this.networkHashrateTHs(this.currentSimDateMs()), blockReward: this.blockRewardForDate(this.currentSimDateMs()) },
       eventLog: this.adminLog.slice(-40).reverse(),
@@ -487,7 +621,7 @@ export class SimEngine {
   persistMarket() {
     const up = this.db.prepare('INSERT INTO market_state(symbol,lastPrice,biasDirection,biasStrength,biasUntil,updatedAt) VALUES(?,?,?,?,?,?) ON CONFLICT(symbol) DO UPDATE SET lastPrice=excluded.lastPrice,biasDirection=excluded.biasDirection,biasStrength=excluded.biasStrength,biasUntil=excluded.biasUntil,updatedAt=excluded.updatedAt');
     const m = this.market.get('BTC');
-    up.run(m.symbol, m.lastPrice, m.biasDirection, m.biasStrength, m.biasUntilTick, Date.now());
+    up.run(m.symbol, m.lastPrice, null, 0, -1, Date.now());
   }
 
   persistSimState() { this.db.prepare('INSERT INTO sim_state(roomId,status,startedAt,tick) VALUES(?,?,?,?) ON CONFLICT(roomId) DO UPDATE SET status=excluded.status,startedAt=excluded.startedAt,tick=excluded.tick').run(ROOM_ID, this.state.status, this.state.startedAt, this.state.tick); }

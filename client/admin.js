@@ -29,11 +29,16 @@ socket.on(SERVER_EVENTS.MARKET_TICK, (tick) => {
   if (tick.last52Candles?.length) chart?.setInitialCandles(tick.last52Candles);
   if (tick.partialCandle) chart?.updateCandle(tick.partialCandle);
   if (tick.candle) chart?.updateCandle(tick.candle);
+  if (typeof tick.fairValue === 'number') chart?.updateFairValue(tick.fairValue);
 });
 
 socket.on(SERVER_EVENTS.LEADERBOARD, ({ rows }) => {
   if (!$('rows')) return;
-  $('rows').innerHTML = rows.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>$${r.netWorth.toFixed(2)}</td><td class='${r.pnl >= 0 ? 'good' : 'bad'}'>$${r.pnl.toFixed(2)}</td><td>$${r.cash.toFixed(2)}</td></tr>`).join('');
+  $('rows').innerHTML = rows.map((r, i) => {
+    const btcOwned = Number(r.btcOwned || 0);
+    const miningCapacityTHs = Number(r.miningCapacityTHs || 0);
+    return `<tr><td>${i + 1}</td><td>${r.name}</td><td>$${r.netWorth.toFixed(2)}</td><td class='${r.pnl >= 0 ? 'good' : 'bad'}'>$${r.pnl.toFixed(2)}</td><td>$${r.cash.toFixed(2)}</td><td>${btcOwned.toFixed(8)}</td><td>${miningCapacityTHs.toFixed(2)}</td></tr>`;
+  }).join('');
 });
 
 socket.on(SERVER_EVENTS.NEWS_FEED_UPDATE, ({ events, tickers, energy, simDate }) => {

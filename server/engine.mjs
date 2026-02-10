@@ -546,7 +546,17 @@ export class SimEngine {
     return [...this.players.values()]
       .map((p) => {
         const nw = this.netWorth(p);
-        return { playerId: p.id, name: p.name, cash: Number(p.cashUSD.toFixed(2)), netWorth: Number(nw.toFixed(2)), pnl: Number((nw - p.startingCash).toFixed(2)) };
+        const btcOwned = Number(p.holdings.BTC.qty.toFixed(8));
+        const miningMetrics = this.miningMetricsForPlayer(p);
+        return {
+          playerId: p.id,
+          name: p.name,
+          cash: Number(p.cashUSD.toFixed(2)),
+          netWorth: Number(nw.toFixed(2)),
+          pnl: Number((nw - p.startingCash).toFixed(2)),
+          btcOwned,
+          miningCapacityTHs: Number(miningMetrics.playerHashrateTHs.toFixed(2)),
+        };
       })
       .sort((a, b) => b.pnl - a.pnl);
   }
@@ -584,6 +594,7 @@ export class SimEngine {
     return {
       date: toISODate(this.currentSimDateMs()),
       btcPrice: btc.lastPrice,
+      fairValue: btc.fairValue,
       candle: this.latestCompletedCandle ?? this.partialCurrentDayCandle(),
       ...(includeHistory ? { last52Candles: this.initialCandles52(), partialCandle: this.partialCurrentDayCandle() } : {}),
       blockReward: this.blockRewardForDate(this.currentSimDateMs()),

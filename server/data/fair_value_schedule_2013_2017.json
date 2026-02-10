@@ -1,0 +1,13 @@
+[
+  { "date": "2013-01-01", "fairValueUSD": 13, "note": "Early adoption baseline." },
+  { "date": "2013-04-10", "fairValueUSD": 85, "note": "2013 spring bubble builds rapidly." },
+  { "date": "2013-12-04", "fairValueUSD": 760, "note": "Late-2013 mania peak zone." },
+  { "date": "2014-02-24", "fairValueUSD": 520, "note": "Mt. Gox collapse resets confidence." },
+  { "date": "2014-12-31", "fairValueUSD": 310, "note": "Extended bear-market repricing." },
+  { "date": "2015-08-01", "fairValueUSD": 265, "note": "Bear exhaustion and accumulation." },
+  { "date": "2016-07-09", "fairValueUSD": 640, "note": "Second halving supports higher baseline." },
+  { "date": "2017-03-10", "fairValueUSD": 1180, "note": "ETF-denial volatility but trend remains constructive." },
+  { "date": "2017-09-01", "fairValueUSD": 3300, "note": "Global adoption and scaling-era demand." },
+  { "date": "2017-12-17", "fairValueUSD": 8600, "note": "Late-cycle euphoria overshoots fundamentals." },
+  { "date": "2017-12-31", "fairValueUSD": 7400, "note": "Post-peak normalization begins." }
+]

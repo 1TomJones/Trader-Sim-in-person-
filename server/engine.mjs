@@ -7,6 +7,7 @@ const ROOM_ID = 'MAIN';
 const BLOCKS_PER_TICK = 1 / 600; // ~10 min blocks
 const BLOCK_REWARD_BTC = 3.125;
 const NETWORK_HASHRATE_THS = 750_000_000;
+const SIM_START_DATE_UTC = Date.UTC(2015, 0, 1);
 
 const defaultEnergy = {
   ASIA: 0.11,
@@ -331,6 +332,12 @@ export class SimEngine {
       netWorth: Number(this.netWorth(player).toFixed(2)),
       pnl: Number((this.netWorth(player) - player.startingCash).toFixed(2)),
     };
+  }
+
+
+  simDateISO() {
+    const date = new Date(SIM_START_DATE_UTC + this.state.tick * 24 * 60 * 60 * 1000);
+    return date.toISOString();
   }
 
   marketView() {

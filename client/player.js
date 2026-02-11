@@ -55,12 +55,16 @@ function ensureChart() {
 }
 
 function renderRigTypeOptions() {
+  const selectedRigType = $('rigType').value;
   const available = me?.availableMinerTypes || Object.values(bootstrap.rigCatalog || {});
   $('rigType').innerHTML = available.map((r) => {
     const lockText = r.unlocked === false ? ` • Unlocks ${r.unlockDate}` : '';
     const disabled = r.unlocked === false ? 'disabled' : '';
     return `<option value='${r.key}' ${disabled}>${r.name} (${fmtNumber(r.hashrateTHs, 2)} TH/s • ${fmtCurrency(r.purchasePrice)})${lockText}</option>`;
   }).join('');
+
+  const selectedRigTypeOption = $('rigType').querySelector(`option[value='${selectedRigType}']:not([disabled])`);
+  if (selectedRigTypeOption) selectedRigTypeOption.selected = true;
 }
 
 $('join').onclick = () => {
@@ -99,6 +103,7 @@ socket.on(SERVER_EVENTS.PLAYER_STATE, (p) => {
 
 function renderMiningControls() {
   if (!me) return;
+  const selectedRegion = $('rigRegion').value;
   renderRigTypeOptions();
 
   const unlocked = new Set(me.unlockedRegions || ['EUROPE']);
@@ -116,6 +121,9 @@ function renderMiningControls() {
   });
 
   $('rigRegion').innerHTML = regions.map((region) => `<option value='${region}' ${unlocked.has(region) ? '' : 'disabled'}>${region}${unlocked.has(region) ? '' : ' (locked)'}</option>`).join('');
+
+  const selectedRegionOption = $('rigRegion').querySelector(`option[value='${selectedRegion}']:not([disabled])`);
+  if (selectedRegionOption) selectedRegionOption.selected = true;
 }
 
 function renderPlayer() {

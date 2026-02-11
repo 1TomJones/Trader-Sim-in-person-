@@ -23,6 +23,7 @@ const BASE_DAILY_STEP_PCT = 0.012;
 
 const BASE_ENERGY = { ASIA: 0.07, EUROPE: 0.17, AMERICA: 0.11 };
 const MAX_HASHRATE_POINTS = 600;
+const MINER_POWER_COST_REDUCTION_FACTOR = 20;
 
 const uuid = () => crypto.randomUUID();
 const toISODate = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -104,6 +105,17 @@ export class SimEngine {
     this.lastCandleTimeSec = this.last52Candles.at(-1)?.time ?? null;
 
     this.persistMarket();
+  }
+
+  baselineRigPowerKW() {
+    const baselineRig = RIG_CATALOG.AVALON_GEN1_2013;
+    return (baselineRig.hashrateTHs * baselineRig.efficiencyWPerTH) / 1000;
+  }
+
+  normalizedRigPowerKW(rig) {
+    const baselineRig = RIG_CATALOG.AVALON_GEN1_2013;
+    const baselineReducedPowerKW = this.baselineRigPowerKW() / MINER_POWER_COST_REDUCTION_FACTOR;
+    return baselineReducedPowerKW * (rig.hashrateTHs / baselineRig.hashrateTHs);
   }
 
   loadHashrateSeries() {
@@ -474,9 +486,9 @@ export class SimEngine {
     const btcPerDay = playerShare * BLOCKS_PER_DAY * blockReward;
     const btcPrice = this.market.get('BTC').lastPrice;
     const usdPerDay = btcPerDay * btcPrice;
-    const totalPowerKW = player.rigs.reduce((s, r) => s + (r.hashrateTHs * r.efficiencyWPerTH) / 1000, 0);
+    const totalPowerKW = player.rigs.reduce((s, r) => s + this.normalizedRigPowerKW(r), 0);
     const energyCostDaily = player.rigs.reduce((sum, rig) => {
-      const powerKW = (rig.hashrateTHs * rig.efficiencyWPerTH) / 1000;
+      const powerKW = this.normalizedRigPowerKW(rig);
       return sum + powerKW * 24 * (this.energy[rig.region] ?? 0.12);
     }, 0);
     return {

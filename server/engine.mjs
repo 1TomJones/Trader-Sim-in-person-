@@ -564,23 +564,41 @@ export class SimEngine {
     return player.cashUSD + holdingsValue + rigValue;
   }
 
+  leaderboardSnapshotAtOrBeforeTick(targetTick) {
+    if (!Number.isFinite(targetTick) || targetTick < 0) return [];
+    const row = this.db.prepare('SELECT leaderboard FROM snapshots WHERE roomId = ? AND tick <= ? ORDER BY tick DESC LIMIT 1').get(ROOM_ID, Math.floor(targetTick));
+    if (!row?.leaderboard) return [];
+    try {
+      const parsed = JSON.parse(row.leaderboard);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
   leaderboard() {
+    const oneYearAgoTick = this.state.tick - 365;
+    const historicalRows = this.leaderboardSnapshotAtOrBeforeTick(oneYearAgoTick);
+    const historicalNetWorthByPlayerId = new Map(historicalRows.map((r) => [r.playerId, Number(r.netWorth || 0)]));
+
     return [...this.players.values()]
       .map((p) => {
         const nw = this.netWorth(p);
         const btcOwned = Number(p.holdings.BTC.qty.toFixed(8));
         const miningMetrics = this.miningMetricsForPlayer(p);
+        const netWorth12MonthsAgo = historicalNetWorthByPlayerId.get(p.id) ?? p.startingCash;
         return {
           playerId: p.id,
           name: p.name,
           cash: Number(p.cashUSD.toFixed(2)),
           netWorth: Number(nw.toFixed(2)),
+          ytdPnl: Number((nw - netWorth12MonthsAgo).toFixed(2)),
           pnl: Number((nw - p.startingCash).toFixed(2)),
           btcOwned,
           miningCapacityTHs: Number(miningMetrics.playerHashrateTHs.toFixed(2)),
         };
       })
-      .sort((a, b) => b.pnl - a.pnl);
+      .sort((a, b) => b.netWorth - a.netWorth);
   }
 
   positionsSummary() {

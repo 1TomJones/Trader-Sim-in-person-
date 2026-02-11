@@ -7,6 +7,10 @@ input,select,textarea{background:#0d1428;color:#fff;border:1px solid #24304f;bor
 .asset{padding:12px;border-radius:10px;background:#0d1428}.muted{color:var(--muted)}.good{color:var(--ok)}.bad{color:var(--bad)}
 .tabs{display:flex;gap:8px}.tab{flex:1}.hidden{display:none}.warn{background:#4a1f1f;padding:8px;border-radius:8px}
 .leader-table{width:100%;border-collapse:collapse} .leader-table th,.leader-table td{padding:8px;border-bottom:1px solid #263154;text-align:left}
+.leader-table th[data-sort]{cursor:pointer;user-select:none}
+.leader-table th[data-sort]::after{content:' ';opacity:.45}
+.leader-table th.active-sort[data-sort-dir='desc']::after{content:' ↓';opacity:1}
+.leader-table th.active-sort[data-sort-dir='asc']::after{content:' ↑';opacity:1}
 .ticker{white-space:nowrap;overflow:hidden;border-top:1px solid #24304f;padding:8px 0}.ticker span{display:inline-block;padding-right:30px;animation:scroll 22s linear infinite}
 @keyframes scroll{0%{transform:translateX(100%)}100%{transform:translateX(-100%)}}
 @media (max-width:700px){.grid,.grid3{grid-template-columns:1fr}}

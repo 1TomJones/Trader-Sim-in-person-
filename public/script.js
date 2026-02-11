@@ -2252,7 +2252,9 @@ socket.on('priceUpdate', ({ price, priceMode, t: stamp })=>{
     syncCandleSeriesData({ shouldScroll: Boolean(candleUpdate.newBucket) });
   }
   if (priceMode) updateModeBadges(priceMode);
-  if (lastBookSnapshot || lastDarkSnapshot || lastOrdersSnapshot) renderActiveBook();
+  if (currentBookView === 'dom' && lastBookSnapshot) {
+    renderOrderBook(lastBookSnapshot);
+  }
   syncMarkers();
 });
 

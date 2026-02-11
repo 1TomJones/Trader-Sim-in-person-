@@ -33,3 +33,5 @@ input,select,textarea{background:#0d1428;color:#fff;border:1px solid #24304f;bor
 }
 
 .locked-asset{opacity:.55;filter:grayscale(.3)}
+
+.control-chart{height:360px;min-height:280px}

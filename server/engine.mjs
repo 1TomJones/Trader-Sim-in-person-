@@ -13,7 +13,8 @@ const EPS = 0.00000001;
 
 const HISTORY_BARS = 52;
 const INTRADAY_STEPS = 12;
-const HISTORY_DOWN_PROB = 0.65;
+const HISTORY_DOWN_PROB = 0.6;
+const HISTORY_FIRST_BAR_PRICE = 100;
 const FAIR_VALUE_BAND_PCT = 5;
 const FAIR_VALUE_SHIFT_PER_PCT = 0.02;
 const MIN_PROB = 0.05;
@@ -91,12 +92,12 @@ export class SimEngine {
     const history = this.generateHistoricalCandles({
       endDateExclusiveMs: SIM_START_DATE_UTC,
       bars: HISTORY_BARS,
-      anchorPrice: startFairValue,
-      downProb: HISTORY_DOWN_PROB,
+      firstBarPrice: HISTORY_FIRST_BAR_PRICE,
+      endingPrice: startFairValue,
     });
     this.last52Candles = history.candles;
-    this.market.get('BTC').lastPrice = history.startPrice;
-    this.market.get('BTC').previousPrice = history.startPrice;
+    this.market.get('BTC').lastPrice = history.endPrice;
+    this.market.get('BTC').previousPrice = history.endPrice;
     this.latestCompletedCandle = null;
     this.lastCandleTimeSec = this.last52Candles.at(-1)?.time ?? null;
 
@@ -216,43 +217,64 @@ export class SimEngine {
     return candle;
   }
 
-  generateHistoricalCandles({ endDateExclusiveMs, bars, anchorPrice, downProb }) {
-    let nextDayOpenPrice = anchorPrice;
-    const reverseChronological = [];
+  historicalFairValueForDay({ dayMs, oldestDayMs, endingFairValue }) {
+    const rawAtDay = this.fairValueForDateMs(dayMs);
+    const rawAtOldest = this.fairValueForDateMs(oldestDayMs);
+    const rawAtStart = this.fairValueForDateMs(SIM_START_DATE_UTC);
 
-    for (let i = 1; i <= bars; i += 1) {
-      const dayMs = endDateExclusiveMs - i * DAY_MS;
-      const close = nextDayOpenPrice;
-      const dailyStepUSD = Math.max(1, Math.round(close * this.dailyStepPct * this.volatilityMultiplier));
-      const subStepUSD = Math.max(1, Math.round(dailyStepUSD / Math.sqrt(INTRADAY_STEPS)));
-
-      let reversePrice = close;
-      let high = reversePrice;
-      let low = reversePrice;
-      for (let j = 0; j < INTRADAY_STEPS; j += 1) {
-        const forwardDown = this.rng() < downProb;
-        const reverseMove = forwardDown ? subStepUSD : -subStepUSD;
-        reversePrice = clampMin(reversePrice + reverseMove, EPS);
-        high = Math.max(high, reversePrice);
-        low = Math.min(low, reversePrice);
-      }
-
-      const open = reversePrice;
-      const candle = {
-        time: Math.floor(dayMs / 1000),
-        open: Number(open.toFixed(6)),
-        high: Number(high.toFixed(6)),
-        low: Number(low.toFixed(6)),
-        close: Number(close.toFixed(6)),
-      };
-      this.assertCandle(candle);
-      reverseChronological.push(candle);
-      nextDayOpenPrice = open;
+    if (Math.abs(rawAtOldest - rawAtStart) > EPS) {
+      const scale = (HISTORY_FIRST_BAR_PRICE - endingFairValue) / (rawAtOldest - rawAtStart);
+      return Number((endingFairValue + (rawAtDay - rawAtStart) * scale).toFixed(6));
     }
 
-    const candles = reverseChronological.reverse();
+    const totalSpan = Math.max(1, Math.round((SIM_START_DATE_UTC - oldestDayMs) / DAY_MS));
+    const elapsed = Math.round((dayMs - oldestDayMs) / DAY_MS);
+    const ratio = clamp(elapsed / totalSpan, 0, 1);
+    return Number((HISTORY_FIRST_BAR_PRICE + (endingFairValue - HISTORY_FIRST_BAR_PRICE) * ratio).toFixed(6));
+  }
+
+  generateHistoricalCandles({ endDateExclusiveMs, bars, firstBarPrice = HISTORY_FIRST_BAR_PRICE, endingPrice }) {
+    const oldestDayMs = endDateExclusiveMs - bars * DAY_MS;
+    const candles = [];
+    let openingPrice = firstBarPrice;
+
+    for (let i = 0; i < bars; i += 1) {
+      const dayMs = oldestDayMs + i * DAY_MS;
+      const fairValue = this.historicalFairValueForDay({
+        dayMs,
+        oldestDayMs,
+        endingFairValue: endingPrice,
+      });
+      const basisPrice = Math.max(openingPrice, fairValue, EPS);
+      const dailyStepUSD = Math.max(1, Math.round(basisPrice * this.dailyStepPct * this.volatilityMultiplier));
+      const candle = this.simulateIntradayCandle({
+        dateMs: dayMs,
+        openingPrice,
+        dailyStepUSD,
+        directionMode: 'fair',
+        fairValue,
+      });
+
+      candles.push(candle);
+      openingPrice = candle.close;
+    }
+
+    if (candles.length) {
+      const last = candles[candles.length - 1];
+      const close = Number(endingPrice.toFixed(6));
+      const high = Number(Math.max(last.high, close, last.open, last.low).toFixed(6));
+      const low = Number(Math.min(last.low, close, last.open, last.high).toFixed(6));
+      candles[candles.length - 1] = {
+        ...last,
+        high,
+        low,
+        close,
+      };
+      this.assertCandle(candles[candles.length - 1]);
+    }
+
     this.assertCandleTimeSequence(candles.map((c) => c.time));
-    return { candles, startPrice: anchorPrice };
+    return { candles, startPrice: firstBarPrice, endPrice: endingPrice };
   }
 
   assertCandle(candle) {

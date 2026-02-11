@@ -1,18 +1,24 @@
 import { CLIENT_EVENTS, SERVER_EVENTS } from '/shared/contracts.mjs';
-import { createBtcCandleChart } from '/client/btc-chart.js';
+import { createAdminControlChart, createBtcCandleChart } from '/client/btc-chart.js';
 
 const socket = io();
 const $ = (id) => document.getElementById(id);
 let latestMarketState = null;
 let latestTickers = {};
 let latestEnergy = {};
-let chart = null;
+let newsChart = null;
+let controlChart = null;
 
 function fmtSimDate(input) { const date = new Date(input); if (Number.isNaN(date.getTime())) return '2013-01-01'; return date.toISOString().slice(0, 10); }
 
-function ensureChart() {
-  if (chart) return;
-  chart = createBtcCandleChart($('btcChart'));
+function ensureNewsChart() {
+  if (newsChart || !$('btcChart')) return;
+  newsChart = createBtcCandleChart($('btcChart'));
+}
+
+function ensureControlChart() {
+  if (controlChart || !$('btcControlChart')) return;
+  controlChart = createAdminControlChart($('btcControlChart'));
 }
 
 if ($('go')) $('go').onclick = () => socket.emit(CLIENT_EVENTS.ADMIN_AUTH, { pin: $('pin').value });
@@ -25,11 +31,35 @@ if ($('end')) $('end').onclick = () => socket.emit(CLIENT_EVENTS.REQUEST_END);
 if ($('setTickSpeed')) $('setTickSpeed').onclick = () => socket.emit(CLIENT_EVENTS.ADMIN_SET_TICK_SPEED, { tickMs: Number($('tickSpeed').value) });
 
 socket.on(SERVER_EVENTS.MARKET_TICK, (tick) => {
-  ensureChart();
-  if (tick.last52Candles?.length) chart?.setInitialCandles(tick.last52Candles);
-  if (tick.partialCandle) chart?.updateCandle(tick.partialCandle);
-  if (tick.candle) chart?.updateCandle(tick.candle);
-  if (typeof tick.fairValue === 'number') chart?.updateFairValue(tick.fairValue);
+  ensureNewsChart();
+  ensureControlChart();
+
+  if (tick.last52Candles?.length) {
+    newsChart?.setInitialCandles(tick.last52Candles);
+    controlChart?.setInitialCandles(tick.last52Candles, tick.fairValue);
+  }
+
+  if (tick.partialCandle) {
+    newsChart?.updateCandle(tick.partialCandle);
+    controlChart?.updateValues({
+      time: tick.partialCandle.time,
+      price: tick.partialCandle.close,
+      fairValue: tick.fairValue,
+    });
+  }
+
+  if (tick.candle) {
+    newsChart?.updateCandle(tick.candle);
+    controlChart?.updateValues({
+      time: tick.candle.time,
+      price: tick.candle.close,
+      fairValue: tick.fairValue,
+    });
+  }
+
+  if ($('controlFairValue') && typeof tick.fairValue === 'number') {
+    $('controlFairValue').textContent = `$${Number(tick.fairValue).toFixed(2)}`;
+  }
 });
 
 socket.on(SERVER_EVENTS.LEADERBOARD, ({ rows }) => {
@@ -77,7 +107,7 @@ socket.on(SERVER_EVENTS.NEWS_EVENT_TRIGGERED, (e) => {
 socket.on(SERVER_EVENTS.ADMIN_MARKET_STATE, (s) => {
   latestMarketState = s;
   if ($('positions')) $('positions').textContent = JSON.stringify(s.positionsSummary, null, 2);
-  if ($('fairValueReadout')) $('fairValueReadout').textContent = `$${Number(s.perAsset?.[0]?.fairValue || 0).toFixed(2)}`;
+  if ($('controlFairValue')) $('controlFairValue').textContent = `$${Number(s.perAsset?.[0]?.fairValue || 0).toFixed(2)}`;
   if ($('dailyStepPct') && s.stepConfig?.dailyStepPct) $('dailyStepPct').value = String(s.stepConfig.dailyStepPct);
   if ($('volatilityMultiplier') && s.stepConfig?.volatilityMultiplier) $('volatilityMultiplier').value = String(s.stepConfig.volatilityMultiplier);
   if ($('elog')) $('elog').textContent = s.eventLog.map((e) => `${new Date(e.t).toLocaleTimeString()} ${e.message}`).join('\n');

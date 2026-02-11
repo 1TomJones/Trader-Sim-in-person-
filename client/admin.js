@@ -11,6 +11,9 @@ let controlChart = null;
 
 function fmtSimDate(input) { const date = new Date(input); if (Number.isNaN(date.getTime())) return '2013-01-01'; return date.toISOString().slice(0, 10); }
 
+const fmtNumber = (n, d = 2) => Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmtCurrency = (n, d = 2) => `$${fmtNumber(n, d)}`;
+
 function ensureNewsChart() {
   if (newsChart || !$('btcChart')) return;
   newsChart = createBtcCandleChart($('btcChart'));
@@ -58,7 +61,7 @@ socket.on(SERVER_EVENTS.MARKET_TICK, (tick) => {
   }
 
   if ($('controlFairValue') && typeof tick.fairValue === 'number') {
-    $('controlFairValue').textContent = `$${Number(tick.fairValue).toFixed(2)}`;
+    $('controlFairValue').textContent = fmtCurrency(tick.fairValue, 2);
   }
 });
 
@@ -67,7 +70,7 @@ socket.on(SERVER_EVENTS.LEADERBOARD, ({ rows }) => {
   $('rows').innerHTML = rows.map((r, i) => {
     const btcOwned = Number(r.btcOwned || 0);
     const miningCapacityTHs = Number(r.miningCapacityTHs || 0);
-    return `<tr><td>${i + 1}</td><td>${r.name}</td><td>$${r.netWorth.toFixed(2)}</td><td class='${r.pnl >= 0 ? 'good' : 'bad'}'>$${r.pnl.toFixed(2)}</td><td>$${r.cash.toFixed(2)}</td><td>${btcOwned.toFixed(8)}</td><td>${miningCapacityTHs.toFixed(2)}</td></tr>`;
+    return `<tr><td>${i + 1}</td><td>${r.name}</td><td>${fmtCurrency(r.netWorth, 2)}</td><td class='${r.pnl >= 0 ? 'good' : 'bad'}'>${fmtCurrency(r.pnl, 2)}</td><td>${fmtCurrency(r.cash, 2)}</td><td>${fmtNumber(btcOwned, 8)}</td><td>${fmtNumber(miningCapacityTHs, 2)}</td></tr>`;
   }).join('');
 });
 
@@ -81,10 +84,10 @@ socket.on(SERVER_EVENTS.NEWS_FEED_UPDATE, ({ events, tickers, energy, simDate })
 
   if ($('cards')) {
     $('cards').innerHTML = `
-      <div class='asset'><b>BTC</b><div>$${Number(latestTickers.BTC?.price || 0).toFixed(2)}</div></div>
-      <div class='asset'><b>ASIA</b><div>$${Number(latestEnergy.ASIA || 0).toFixed(3)}/kWh</div></div>
-      <div class='asset'><b>EUROPE</b><div>$${Number(latestEnergy.EUROPE || 0).toFixed(3)}/kWh</div></div>
-      <div class='asset'><b>AMERICA</b><div>$${Number(latestEnergy.AMERICA || 0).toFixed(3)}/kWh</div></div>
+      <div class='asset'><b>BTC</b><div>${fmtCurrency(latestTickers.BTC?.price || 0, 2)}</div></div>
+      <div class='asset'><b>ASIA</b><div>${fmtCurrency(latestEnergy.ASIA || 0, 3)}/kWh</div></div>
+      <div class='asset'><b>EUROPE</b><div>${fmtCurrency(latestEnergy.EUROPE || 0, 3)}/kWh</div></div>
+      <div class='asset'><b>AMERICA</b><div>${fmtCurrency(latestEnergy.AMERICA || 0, 3)}/kWh</div></div>
     `;
   }
 
@@ -92,7 +95,7 @@ socket.on(SERVER_EVENTS.NEWS_FEED_UPDATE, ({ events, tickers, energy, simDate })
     const prev = Number(latestTickers.BTC?.previous || latestTickers.BTC?.price || 0);
     const now = Number(latestTickers.BTC?.price || 0);
     const pct = prev > 0 ? ((now - prev) / prev) * 100 : 0;
-    $('ticker').innerHTML = `BTC $${now.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%) • Date ${fmtSimDate(simDate)} • ASIA:$${Number(latestEnergy.ASIA || 0).toFixed(3)} • EUROPE:$${Number(latestEnergy.EUROPE || 0).toFixed(3)} • AMERICA:$${Number(latestEnergy.AMERICA || 0).toFixed(3)}`;
+    $('ticker').innerHTML = `BTC ${fmtCurrency(now, 2)} (${pct >= 0 ? '+' : ''}${fmtNumber(pct, 2)}%) • Date ${fmtSimDate(simDate)} • ASIA:${fmtCurrency(latestEnergy.ASIA || 0, 3)} • EUROPE:${fmtCurrency(latestEnergy.EUROPE || 0, 3)} • AMERICA:${fmtCurrency(latestEnergy.AMERICA || 0, 3)}`;
   }
 });
 
@@ -107,7 +110,7 @@ socket.on(SERVER_EVENTS.NEWS_EVENT_TRIGGERED, (e) => {
 socket.on(SERVER_EVENTS.ADMIN_MARKET_STATE, (s) => {
   latestMarketState = s;
   if ($('positions')) $('positions').textContent = JSON.stringify(s.positionsSummary, null, 2);
-  if ($('controlFairValue')) $('controlFairValue').textContent = `$${Number(s.perAsset?.[0]?.fairValue || 0).toFixed(2)}`;
+  if ($('controlFairValue')) $('controlFairValue').textContent = fmtCurrency(s.perAsset?.[0]?.fairValue || 0, 2);
   if ($('dailyStepPct') && s.stepConfig?.dailyStepPct) $('dailyStepPct').value = String(s.stepConfig.dailyStepPct);
   if ($('volatilityMultiplier') && s.stepConfig?.volatilityMultiplier) $('volatilityMultiplier').value = String(s.stepConfig.volatilityMultiplier);
   if ($('elog')) $('elog').textContent = s.eventLog.map((e) => `${new Date(e.t).toLocaleTimeString()} ${e.message}`).join('\n');

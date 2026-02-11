@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { ASSETS, REGIONS, RIG_CATALOG, SIM_STATUS } from '../shared/contracts.mjs';
+import { ASSETS, REGION_UNLOCK_FEES, REGIONS, RIG_CATALOG, SIM_STATUS } from '../shared/contracts.mjs';
 
 const STARTING_CASH = 10000;
 const ROOM_ID = 'MAIN';
@@ -21,7 +21,8 @@ const MIN_PROB = 0.05;
 const MAX_PROB = 0.95;
 const BASE_DAILY_STEP_PCT = 0.012;
 
-const BASE_ENERGY = { ASIA: 0.09, EUROPE: 0.17, AMERICA: 0.12 };
+const BASE_ENERGY = { ASIA: 0.07, EUROPE: 0.17, AMERICA: 0.11 };
+const MAX_HASHRATE_POINTS = 600;
 
 const uuid = () => crypto.randomUUID();
 const toISODate = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -88,6 +89,7 @@ export class SimEngine {
     this.adminLog = [];
     this.rate = new Map();
     this.lastTriggeredNews = [];
+    this.hashrateHistory = [];
 
     const history = this.generateHistoricalCandles({
       endDateExclusiveMs: SIM_START_DATE_UTC,
@@ -105,8 +107,8 @@ export class SimEngine {
   }
 
   loadHashrateSeries() {
-    const rows = parseCsv(path.join(process.cwd(), 'server', 'data', 'network_hashrate_monthly_2013_2017.csv'));
-    return new Map(rows.map((r) => [r.month.slice(0, 7), Number(r.hashrateTHs)]));
+    const rows = parseCsv(path.join(process.cwd(), 'server', 'data', 'base_network_hashrate_2013_2017.csv'));
+    return new Map(rows.map((r) => [r.date, Number(r.hashrateTHs)]));
   }
 
   loadEvents() {
@@ -311,10 +313,11 @@ export class SimEngine {
       holdings: { BTC: { qty: 0, avgEntry: 0 } },
       realizedPnL: 0,
       rigs: [],
+      unlockedRegions: new Set(['EUROPE']),
     };
     this.players.set(id, player);
     this.socketToPlayer.set(socketId, id);
-    this.db.prepare('INSERT INTO players(id,name,roomId,createdAt,startingCash) VALUES (?,?,?,?,?)').run(id, player.name, ROOM_ID, createdAt, STARTING_CASH);
+    this.db.prepare('INSERT INTO players(id,name,roomId,createdAt,startingCash,unlockedRegions) VALUES (?,?,?,?,?,?)').run(id, player.name, ROOM_ID, createdAt, STARTING_CASH, JSON.stringify([...player.unlockedRegions]));
     this.db.prepare('INSERT INTO wallets(playerId,cashUSD) VALUES(?,?)').run(id, STARTING_CASH);
     return player;
   }
@@ -349,12 +352,34 @@ export class SimEngine {
     return Math.ceil((halving - dateMs) / DAY_MS);
   }
 
-  networkHashrateTHs(dateMs) {
-    const d = new Date(dateMs);
-    const monthStart = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-    const curr = this.networkHashrateSeries.get(monthStart);
+  baseNetworkHashrateTHs(dateMs) {
+    const simDate = toISODate(dateMs);
+    const curr = this.networkHashrateSeries.get(simDate);
     if (curr != null) return curr;
     return [...this.networkHashrateSeries.values()].at(-1) ?? 1000;
+  }
+
+  totalPlayerHashrateTHs() {
+    let total = 0;
+    for (const p of this.players.values()) total += p.rigs.reduce((sum, r) => sum + r.hashrateTHs, 0);
+    return total;
+  }
+
+  hashrateBreakdown(dateMs = this.currentSimDateMs()) {
+    const base = this.baseNetworkHashrateTHs(dateMs);
+    const players = this.totalPlayerHashrateTHs();
+    return {
+      baseNetworkHashrateTHs: base,
+      playerNetworkHashrateTHs: players,
+      totalNetworkHashrateTHs: base + players,
+    };
+  }
+
+  availableMinerTypesForDate(dateMs = this.currentSimDateMs()) {
+    const simDate = toISODate(dateMs);
+    return Object.values(RIG_CATALOG)
+      .map((rig) => ({ ...rig, unlocked: simDate >= rig.unlockDate }))
+      .sort((a, b) => a.unlockDate.localeCompare(b.unlockDate));
   }
 
   triggerEvent(ev) {
@@ -430,6 +455,10 @@ export class SimEngine {
 
     for (const p of this.players.values()) this.applyMiningForPlayer(p);
 
+    const hashrate = this.hashrateBreakdown(this.currentSimDateMs());
+    this.hashrateHistory.push({ simDate, ...hashrate });
+    this.hashrateHistory = this.hashrateHistory.slice(-MAX_HASHRATE_POINTS);
+
     this.state.tick += 1;
     this.persistWalletsAndHoldings();
     if (this.state.tick % 10 === 0) this.persistSnapshot();
@@ -438,9 +467,9 @@ export class SimEngine {
   }
 
   miningMetricsForPlayer(player) {
-    const networkHashrate = this.networkHashrateTHs(this.currentSimDateMs());
+    const hashrate = this.hashrateBreakdown(this.currentSimDateMs());
     const playerHashrate = player.rigs.reduce((s, r) => s + r.hashrateTHs, 0);
-    const playerShare = networkHashrate > 0 ? playerHashrate / networkHashrate : 0;
+    const playerShare = hashrate.totalNetworkHashrateTHs > 0 ? playerHashrate / hashrate.totalNetworkHashrateTHs : 0;
     const blockReward = this.blockRewardForDate(this.currentSimDateMs());
     const btcPerDay = playerShare * BLOCKS_PER_DAY * blockReward;
     const btcPrice = this.market.get('BTC').lastPrice;
@@ -452,7 +481,10 @@ export class SimEngine {
     }, 0);
     return {
       playerHashrateTHs: playerHashrate,
-      networkHashrateTHs: networkHashrate,
+      networkHashrateTHs: hashrate.totalNetworkHashrateTHs,
+      baseNetworkHashrateTHs: hashrate.baseNetworkHashrateTHs,
+      playerNetworkHashrateTHs: hashrate.playerNetworkHashrateTHs,
+      totalNetworkHashrateTHs: hashrate.totalNetworkHashrateTHs,
       playerSharePct: playerShare * 100,
       btcMinedPerDay: btcPerDay,
       usdMinedPerDay: usdPerDay,
@@ -462,7 +494,7 @@ export class SimEngine {
       netMiningProfitUSDPerDay: usdPerDay - energyCostDaily,
       blockRewardBTC: blockReward,
       nextHalvingCountdownDays: this.nextHalvingCountdownDays(this.currentSimDateMs()),
-      difficultyIndex: networkHashrate / 1000,
+      difficultyIndex: hashrate.totalNetworkHashrateTHs / 1000,
     };
   }
 
@@ -521,6 +553,9 @@ export class SimEngine {
     const rig = RIG_CATALOG[rigType];
     count = Math.max(1, Math.floor(Number(count) || 1));
     if (!rig || !REGIONS.includes(region)) return { ok: false, message: 'Invalid rig request' };
+    const simDate = toISODate(this.currentSimDateMs());
+    if (simDate < rig.unlockDate) return { ok: false, message: `Miner unlocks on ${rig.unlockDate}` };
+    if (!player.unlockedRegions?.has(region)) return { ok: false, message: `${region} is locked` };
     const totalCost = rig.purchasePrice * count;
     if (!(player.cashUSD > 0 && player.cashUSD - totalCost >= 0)) return { ok: false, message: 'Insufficient cash' };
     for (let i = 0; i < count; i += 1) {
@@ -529,6 +564,23 @@ export class SimEngine {
       this.db.prepare('INSERT INTO mining_rigs(id,playerId,region,rigType,purchasePrice,hashrateTHs,efficiencyWPerTH,resaleValuePct,createdAt) VALUES (?,?,?,?,?,?,?,?,?)').run(r.id, r.playerId, r.region, r.rigType, r.purchasePrice, r.hashrateTHs, r.efficiencyWPerTH, r.resaleValuePct, r.createdAt);
     }
     player.cashUSD -= totalCost;
+    return { ok: true };
+  }
+
+  unlockRegion(player, region) {
+    if (!this.assertRate(player.id, 'rig')) return { ok: false, message: 'Rate limit exceeded' };
+    if (!REGIONS.includes(region)) return { ok: false, message: 'Invalid region' };
+    if (player.unlockedRegions?.has(region)) return { ok: true, message: 'Already unlocked' };
+    const fee = Number(REGION_UNLOCK_FEES[region] ?? 0);
+    if (fee <= 0) {
+      player.unlockedRegions.add(region);
+      this.db.prepare('UPDATE players SET unlockedRegions = ? WHERE id = ?').run(JSON.stringify([...player.unlockedRegions]), player.id);
+      return { ok: true };
+    }
+    if (!(player.cashUSD > 0 && player.cashUSD - fee >= 0)) return { ok: false, message: 'Insufficient cash' };
+    player.cashUSD -= fee;
+    player.unlockedRegions.add(region);
+    this.db.prepare('UPDATE players SET unlockedRegions = ? WHERE id = ?').run(JSON.stringify([...player.unlockedRegions]), player.id);
     return { ok: true };
   }
 
@@ -622,6 +674,9 @@ export class SimEngine {
       unrealizedPnL: Number(unrealizedPnL.toFixed(2)),
       realizedPnL: Number(player.realizedPnL.toFixed(2)),
       rigs: player.rigs,
+      unlockedRegions: [...(player.unlockedRegions || new Set(['EUROPE']))],
+      regionUnlockFees: REGION_UNLOCK_FEES,
+      availableMinerTypes: this.availableMinerTypesForDate(),
       miningMetrics: this.miningMetricsForPlayer(player),
       netWorth: Number(this.netWorth(player).toFixed(2)),
       pnl: Number((this.netWorth(player) - player.startingCash).toFixed(2)),
@@ -638,7 +693,8 @@ export class SimEngine {
       candle: this.latestCompletedCandle ?? this.partialCurrentDayCandle(),
       ...(includeHistory ? { last52Candles: this.initialCandles52(), partialCandle: this.partialCurrentDayCandle() } : {}),
       blockReward: this.blockRewardForDate(this.currentSimDateMs()),
-      networkHashrate: this.networkHashrateTHs(this.currentSimDateMs()),
+      ...this.hashrateBreakdown(this.currentSimDateMs()),
+      networkHashrate: this.hashrateBreakdown(this.currentSimDateMs()).totalNetworkHashrateTHs,
       energyPrices: this.energy,
       prices: { BTC: { price: btc.lastPrice, previous: btc.previousPrice, type: 'major' } },
     };
@@ -653,7 +709,8 @@ export class SimEngine {
       energyPrices: this.energy,
       stepConfig: { dailyStepPct: this.dailyStepPct, volatilityMultiplier: this.volatilityMultiplier, intradaySteps: INTRADAY_STEPS },
       positionsSummary: this.positionsSummary(),
-      simState: { ...this.state, simDate: this.simDateISO(), tickMs: this.tickMs, networkHashrateTHs: this.networkHashrateTHs(this.currentSimDateMs()), blockReward: this.blockRewardForDate(this.currentSimDateMs()) },
+      simState: { ...this.state, simDate: this.simDateISO(), tickMs: this.tickMs, ...this.hashrateBreakdown(this.currentSimDateMs()), networkHashrateTHs: this.hashrateBreakdown(this.currentSimDateMs()).totalNetworkHashrateTHs, blockReward: this.blockRewardForDate(this.currentSimDateMs()) },
+      hashrateHistory: this.hashrateHistory,
       eventLog: this.adminLog.slice(-40).reverse(),
     };
   }

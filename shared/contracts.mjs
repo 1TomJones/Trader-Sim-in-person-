@@ -8,9 +8,39 @@ export const SIM_STATUS = {
 export const REGIONS = ['ASIA', 'EUROPE', 'AMERICA'];
 
 export const RIG_CATALOG = {
-  S9_LEGACY: { key: 'S9_LEGACY', name: 'S9 Legacy', purchasePrice: 1200, hashrateTHs: 14, efficiencyWPerTH: 98, resaleValuePct: 0.45 },
-  S19_PRO: { key: 'S19_PRO', name: 'S19 Pro', purchasePrice: 3900, hashrateTHs: 110, efficiencyWPerTH: 30, resaleValuePct: 0.6 },
-  S21_MODERN: { key: 'S21_MODERN', name: 'S21 Modern', purchasePrice: 7200, hashrateTHs: 200, efficiencyWPerTH: 17, resaleValuePct: 0.7 },
+  AVALON_GEN1_2013: {
+    key: 'AVALON_GEN1_2013',
+    name: 'Avalon Gen1 (2013)',
+    purchasePrice: 900,
+    hashrateTHs: 0.07,
+    efficiencyWPerTH: 6800,
+    resaleValuePct: 0.35,
+    unlockDate: '2013-01-01',
+  },
+  ANTMINER_S5_2014: {
+    key: 'ANTMINER_S5_2014',
+    name: 'Antminer S5 (2014/2015 unlock)',
+    purchasePrice: 1400,
+    hashrateTHs: 1.15,
+    efficiencyWPerTH: 510,
+    resaleValuePct: 0.45,
+    unlockDate: '2014-12-01',
+  },
+  ANTMINER_S9_2016: {
+    key: 'ANTMINER_S9_2016',
+    name: 'Antminer S9 (2016 unlock)',
+    purchasePrice: 2400,
+    hashrateTHs: 13.5,
+    efficiencyWPerTH: 98,
+    resaleValuePct: 0.55,
+    unlockDate: '2016-06-01',
+  },
+};
+
+export const REGION_UNLOCK_FEES = {
+  EUROPE: 0,
+  ASIA: 1800,
+  AMERICA: 2400,
 };
 
 export const ASSETS = [
@@ -37,6 +67,7 @@ export const CLIENT_EVENTS = {
   SELL_CRYPTO: 'sellCrypto',
   BUY_RIG: 'buyRig',
   SELL_RIG: 'sellRig',
+  UNLOCK_REGION: 'unlockRegion',
   ADMIN_UPDATE_MARKET: 'adminUpdateMarketParams',
   ADMIN_SET_TICK_SPEED: 'adminSetTickSpeed',
   ADMIN_AUTH: 'adminAuth',

@@ -61,3 +61,55 @@ export function createAdminControlChart(container) {
     },
   };
 }
+
+export function createHashrateLineChart(container) {
+  if (!container) return null;
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 800 220');
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', '220');
+  const bg = document.createElementNS(NS, 'rect');
+  bg.setAttribute('x', '0'); bg.setAttribute('y', '0'); bg.setAttribute('width', '800'); bg.setAttribute('height', '220'); bg.setAttribute('fill', '#0d1428');
+  const totalPath = document.createElementNS(NS, 'path');
+  const basePath = document.createElementNS(NS, 'path');
+  const playerPath = document.createElementNS(NS, 'path');
+  [basePath, playerPath, totalPath].forEach((p) => { p.setAttribute('fill', 'none'); p.setAttribute('stroke-width', '2'); svg.appendChild(p); });
+  basePath.setAttribute('stroke', '#5db2ff');
+  playerPath.setAttribute('stroke', '#9b7bff');
+  totalPath.setAttribute('stroke', '#32d296');
+  svg.prepend(bg);
+  container.innerHTML = '';
+  container.appendChild(svg);
+
+  const toPath = (points, min, max) => {
+    if (!points.length) return '';
+    const w = 780;
+    const h = 180;
+    const ox = 10;
+    const oy = 20;
+    return points.map((p, i) => {
+      const x = ox + (i / Math.max(1, points.length - 1)) * w;
+      const y = oy + h - (((p - min) / Math.max(1e-9, max - min)) * h);
+      return `${i === 0 ? 'M' : 'L'}${x.toFixed(2)} ${y.toFixed(2)}`;
+    }).join(' ');
+  };
+
+  return {
+    update(points) {
+      const rows = Array.isArray(points) ? points : [];
+      if (!rows.length) {
+        basePath.setAttribute('d', '');
+        playerPath.setAttribute('d', '');
+        totalPath.setAttribute('d', '');
+        return;
+      }
+      const all = rows.flatMap((r) => [Number(r.baseNetworkHashrateTHs) || 0, Number(r.playerNetworkHashrateTHs) || 0, Number(r.totalNetworkHashrateTHs) || 0]);
+      const min = Math.min(...all);
+      const max = Math.max(...all);
+      basePath.setAttribute('d', toPath(rows.map((r) => Number(r.baseNetworkHashrateTHs) || 0), min, max));
+      playerPath.setAttribute('d', toPath(rows.map((r) => Number(r.playerNetworkHashrateTHs) || 0), min, max));
+      totalPath.setAttribute('d', toPath(rows.map((r) => Number(r.totalNetworkHashrateTHs) || 0), min, max));
+    },
+  };
+}

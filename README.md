@@ -27,11 +27,50 @@ This sim is now **Bitcoin-only**.
 
 - Trading: BTC only, long-only buy/sell.
 - Mining: BTC only.
-- No ETH/meme assets, no unlock system.
+- Mining difficulty input is **total network hashrate = base schedule + player rigs**.
+
+## Miner progression (3 models total)
+
+- **Avalon Gen1 (2013)**
+  - Unlock date: `2013-01-01`
+  - Hashrate: `0.07 TH/s`
+  - Efficiency: `6800 W/TH`
+  - Price: `$900`
+- **Antminer S5 (2014/2015 unlock)**
+  - Unlock date: `2014-12-01`
+  - Hashrate: `1.15 TH/s`
+  - Efficiency: `510 W/TH`
+  - Price: `$1400`
+- **Antminer S9 (2016 unlock)**
+  - Unlock date: `2016-06-01`
+  - Hashrate: `13.5 TH/s`
+  - Efficiency: `98 W/TH`
+  - Price: `$2400`
+
+## Region unlock fees
+
+- EUROPE: unlocked by default, highest base electricity.
+- ASIA: unlock fee **$1,800**, cheapest base electricity.
+- AMERICA: unlock fee **$2,400**, mid base electricity.
+
+## Hashrate composition
+
+- `baseNetworkHashrateTHs`: daily schedule from `server/data/base_network_hashrate_2013_2017.csv` (rest-of-world miners).
+- `playerNetworkHashrateTHs`: sum of all player rig TH/s.
+- `totalNetworkHashrateTHs`: `base + players` and this is what mining uses.
+
+## Admin hashrate chart
+
+`/admin/control` includes a live **Network Hashrate (TH/s)** line chart with 3 series:
+- Base network hashrate
+- Player-added hashrate
+- Total network hashrate
+
+Chart updates every sim day and keeps last 600 points in client memory.
 
 ## Data files
 
-- `server/data/network_hashrate_monthly_2013_2017.csv`
+- `server/data/base_network_hashrate_2013_2017.csv`
 - `server/data/events_2013_2017.json`
 - `server/data/fair_value_schedule_2013_2017.json`
 

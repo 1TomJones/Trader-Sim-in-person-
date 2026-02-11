@@ -6,7 +6,7 @@ export function createDb(dbPath = path.join(process.cwd(), 'data', 'sim.db')) {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   db.exec(`
-    CREATE TABLE IF NOT EXISTS players (id TEXT PRIMARY KEY, name TEXT NOT NULL, roomId TEXT NOT NULL, createdAt INTEGER NOT NULL, startingCash REAL NOT NULL);
+    CREATE TABLE IF NOT EXISTS players (id TEXT PRIMARY KEY, name TEXT NOT NULL, roomId TEXT NOT NULL, createdAt INTEGER NOT NULL, startingCash REAL NOT NULL, unlockedRegions TEXT NOT NULL DEFAULT '["EUROPE"]');
     CREATE TABLE IF NOT EXISTS wallets (playerId TEXT PRIMARY KEY, cashUSD REAL NOT NULL);
     CREATE TABLE IF NOT EXISTS holdings (playerId TEXT NOT NULL, symbol TEXT NOT NULL, qty REAL NOT NULL, avgEntry REAL NOT NULL, PRIMARY KEY(playerId, symbol));
     CREATE TABLE IF NOT EXISTS mining_rigs (id TEXT PRIMARY KEY, playerId TEXT NOT NULL, region TEXT NOT NULL, rigType TEXT NOT NULL, purchasePrice REAL NOT NULL, hashrateTHs REAL NOT NULL, efficiencyWPerTH REAL NOT NULL, resaleValuePct REAL NOT NULL, createdAt INTEGER NOT NULL);
@@ -17,5 +17,9 @@ export function createDb(dbPath = path.join(process.cwd(), 'data', 'sim.db')) {
     CREATE TABLE IF NOT EXISTS sim_state (roomId TEXT PRIMARY KEY, status TEXT NOT NULL, startedAt INTEGER, tick INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS snapshots (id INTEGER PRIMARY KEY AUTOINCREMENT, roomId TEXT NOT NULL, tick INTEGER NOT NULL, createdAt INTEGER NOT NULL, leaderboard TEXT NOT NULL);
   `);
+
+  const playerColumns = db.prepare('PRAGMA table_info(players)').all().map((row) => row.name);
+  if (!playerColumns.includes('unlockedRegions')) db.exec("ALTER TABLE players ADD COLUMN unlockedRegions TEXT NOT NULL DEFAULT '[\"EUROPE\"]'");
+
   return db;
 }

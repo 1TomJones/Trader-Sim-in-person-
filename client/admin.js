@@ -1,5 +1,5 @@
 import { CLIENT_EVENTS, SERVER_EVENTS } from '/shared/contracts.mjs';
-import { createAdminControlChart, createBtcCandleChart } from '/client/btc-chart.js';
+import { createAdminControlChart, createBtcCandleChart, createHashrateLineChart } from '/client/btc-chart.js';
 
 const socket = io();
 const $ = (id) => document.getElementById(id);
@@ -8,6 +8,8 @@ let latestTickers = {};
 let latestEnergy = {};
 let newsChart = null;
 let controlChart = null;
+let hashrateChart = null;
+let hashratePoints = [];
 let leaderboardRows = [];
 let leaderboardSort = { key: 'netWorth', direction: 'desc' };
 
@@ -74,6 +76,18 @@ function ensureControlChart() {
   controlChart = createAdminControlChart($('btcControlChart'));
 }
 
+function ensureHashrateChart() {
+  if (hashrateChart || !$('hashrateChart')) return;
+  hashrateChart = createHashrateLineChart($('hashrateChart'));
+}
+
+function renderHashrateSummary(hashrate) {
+  if (!hashrate) return;
+  if ($('baseHashrate')) $('baseHashrate').textContent = fmtNumber(hashrate.baseNetworkHashrateTHs, 2);
+  if ($('playerHashrate')) $('playerHashrate').textContent = fmtNumber(hashrate.playerNetworkHashrateTHs, 2);
+  if ($('totalHashrate')) $('totalHashrate').textContent = fmtNumber(hashrate.totalNetworkHashrateTHs, 2);
+}
+
 if ($('go')) $('go').onclick = () => socket.emit(CLIENT_EVENTS.ADMIN_AUTH, { pin: $('pin').value });
 socket.on('adminAuthed', () => { if ($('auth')) $('auth').innerHTML = '<span class="good">Admin unlocked</span>'; if ($('adminContent')) $('adminContent').classList.remove('hidden'); if ($('adminNav')) $('adminNav').classList.remove('hidden'); });
 socket.on(SERVER_EVENTS.ERROR, ({ message }) => alert(message));
@@ -86,6 +100,7 @@ if ($('setTickSpeed')) $('setTickSpeed').onclick = () => socket.emit(CLIENT_EVEN
 socket.on(SERVER_EVENTS.MARKET_TICK, (tick) => {
   ensureNewsChart();
   ensureControlChart();
+  ensureHashrateChart();
 
   if (tick.last52Candles?.length) {
     newsChart?.setInitialCandles(tick.last52Candles);
@@ -113,6 +128,19 @@ socket.on(SERVER_EVENTS.MARKET_TICK, (tick) => {
   if ($('controlFairValue') && typeof tick.fairValue === 'number') {
     $('controlFairValue').textContent = fmtCurrency(tick.fairValue, 2);
   }
+
+  if (typeof tick.baseNetworkHashrateTHs === 'number') {
+    hashratePoints.push({
+      simDate: tick.date,
+      baseNetworkHashrateTHs: tick.baseNetworkHashrateTHs,
+      playerNetworkHashrateTHs: tick.playerNetworkHashrateTHs,
+      totalNetworkHashrateTHs: tick.totalNetworkHashrateTHs,
+    });
+    hashratePoints = hashratePoints.slice(-600);
+    hashrateChart?.update(hashratePoints);
+    renderHashrateSummary(tick);
+  }
+
 });
 
 socket.on(SERVER_EVENTS.LEADERBOARD, ({ rows }) => {
@@ -161,6 +189,12 @@ socket.on(SERVER_EVENTS.ADMIN_MARKET_STATE, (s) => {
   if ($('volatilityMultiplier') && s.stepConfig?.volatilityMultiplier) $('volatilityMultiplier').value = String(s.stepConfig.volatilityMultiplier);
   if ($('elog')) $('elog').textContent = s.eventLog.map((e) => `${new Date(e.t).toLocaleTimeString()} ${e.message}`).join('\n');
   if ($('tickSpeed')) $('tickSpeed').value = String(s.simState.tickMs || 1000);
+  ensureHashrateChart();
+  if (Array.isArray(s.hashrateHistory)) {
+    hashratePoints = s.hashrateHistory.slice(-600);
+    hashrateChart?.update(hashratePoints);
+  }
+  renderHashrateSummary(s.simState);
   if ($('energyControls')) {
     $('energyControls').innerHTML = Object.entries(s.energyPrices).map(([r, v]) => `<div class='row'><span style='width:80px'>${r}</span><input type='number' step='0.001' data-energy='${r}' value='${v}'/></div>`).join('');
   }

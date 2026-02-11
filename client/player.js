@@ -7,6 +7,7 @@ let hasJoined = false;
 let latestLobbyStatus = SIM_STATUS.LOBBY;
 let latestTick = null;
 let btcChart = null;
+let bootstrap = { rigCatalog: {}, regions: [], regionUnlockFees: {} };
 
 const $ = (id) => document.getElementById(id);
 const fmtDate = (d) => new Date(d).toISOString().slice(0, 10);
@@ -18,13 +19,23 @@ function showPlayerWait() { $('joinScreen').classList.add('hidden'); $('waitScre
 function showPlayerApp() { $('joinScreen').classList.add('hidden'); $('waitScreen').classList.add('hidden'); $('app').classList.remove('hidden'); }
 
 fetch('/api/bootstrap').then((r) => r.json()).then((b) => {
-  $('rigType').innerHTML = Object.values(b.rigCatalog).map((r) => `<option value='${r.key}'>${r.name} (${fmtNumber(r.hashrateTHs, 2)} TH/s • ${fmtCurrency(r.purchasePrice)})</option>`).join('');
+  bootstrap = b;
   $('rigRegion').innerHTML = b.regions.map((r) => `<option>${r}</option>`).join('');
+  renderRigTypeOptions();
 });
 
 function ensureChart() {
   if (btcChart) return;
   btcChart = createBtcCandleChart($('playerBtcChart'));
+}
+
+function renderRigTypeOptions() {
+  const available = me?.availableMinerTypes || Object.values(bootstrap.rigCatalog || {});
+  $('rigType').innerHTML = available.map((r) => {
+    const lockText = r.unlocked === false ? ` • Unlocks ${r.unlockDate}` : '';
+    const disabled = r.unlocked === false ? 'disabled' : '';
+    return `<option value='${r.key}' ${disabled}>${r.name} (${fmtNumber(r.hashrateTHs, 2)} TH/s • ${fmtCurrency(r.purchasePrice)})${lockText}</option>`;
+  }).join('');
 }
 
 $('join').onclick = () => {
@@ -58,7 +69,29 @@ socket.on(SERVER_EVENTS.PLAYER_STATE, (p) => {
   $('simDate').textContent = fmtDate(p.simDate);
   renderPlayer();
   renderMineMetrics();
+  renderMiningControls();
 });
+
+function renderMiningControls() {
+  if (!me) return;
+  renderRigTypeOptions();
+
+  const unlocked = new Set(me.unlockedRegions || ['EUROPE']);
+  const fees = me.regionUnlockFees || bootstrap.regionUnlockFees || {};
+  const regions = bootstrap.regions || ['ASIA', 'EUROPE', 'AMERICA'];
+
+  $('regionUnlocks').innerHTML = regions.map((region) => {
+    if (unlocked.has(region)) return `<div class='asset'><b>${region}</b><div class='good'>Unlocked</div></div>`;
+    const fee = Number(fees[region] || 0);
+    return `<div class='asset'><b>${region}</b><div>Unlock mining operation (setup fee ${fmtCurrency(fee, 0)})</div><button class='btn alt' data-unlock='${region}' ${me.cash - fee < 0 ? 'disabled' : ''}>Unlock</button></div>`;
+  }).join('');
+
+  document.querySelectorAll('[data-unlock]').forEach((btn) => {
+    btn.onclick = () => socket.emit(CLIENT_EVENTS.UNLOCK_REGION, { region: btn.dataset.unlock });
+  });
+
+  $('rigRegion').innerHTML = regions.map((region) => `<option value='${region}' ${unlocked.has(region) ? '' : 'disabled'}>${region}${unlocked.has(region) ? '' : ' (locked)'}</option>`).join('');
+}
 
 function renderPlayer() {
   if (!me) return;
@@ -84,11 +117,14 @@ function renderMineMetrics() {
   if (!me?.miningMetrics) return;
   const m = me.miningMetrics;
   $('mineMetrics').innerHTML = `
-    <div class='asset'><b>Hashrate</b><div>Player: ${fmtNumber(m.playerHashrateTHs, 2)} TH/s</div><div>Network: ${fmtNumber(m.networkHashrateTHs, 2)} TH/s</div><div>Share: ${fmtNumber(m.playerSharePct, 6)}%</div></div>
+    <div class='asset'><b>Hashrate</b><div>Player: ${fmtNumber(m.playerHashrateTHs, 2)} TH/s</div><div>Contribution: ${fmtNumber(m.playerSharePct, 6)}%</div><div>Total network: ${fmtNumber(m.totalNetworkHashrateTHs || m.networkHashrateTHs, 2)} TH/s</div></div>
+    <div class='asset'><b>Network Composition</b><div>Base: ${fmtNumber(m.baseNetworkHashrateTHs, 2)} TH/s</div><div>Players: ${fmtNumber(m.playerNetworkHashrateTHs, 2)} TH/s</div><div>Total: ${fmtNumber(m.totalNetworkHashrateTHs, 2)} TH/s</div></div>
     <div class='asset'><b>Production</b><div>BTC/day: ${fmtNumber(m.btcMinedPerDay, 6)}</div><div>USD/day: ${fmtCurrency(m.usdMinedPerDay, 2)}</div><div>Block reward: ${fmtNumber(m.blockRewardBTC, 2)} BTC</div></div>
     <div class='asset'><b>Power + Cost</b><div>Power draw: ${fmtNumber(m.totalPowerDrawKW, 2)} kW</div><div>Energy/day: ${fmtCurrency(m.dailyEnergyCostUSD, 2)}</div><div>Net/day: ${fmtCurrency(m.netMiningProfitUSDPerDay, 2)}</div></div>
     <div class='asset'><b>Energy Prices</b><div>ASIA: ${fmtCurrency(m.energyPrices.ASIA, 3)}/kWh</div><div>EUROPE: ${fmtCurrency(m.energyPrices.EUROPE, 3)}/kWh</div><div>AMERICA: ${fmtCurrency(m.energyPrices.AMERICA, 3)}/kWh</div></div>
   `;
+
+  $('minerAvailability').innerHTML = (me.availableMinerTypes || []).map((r) => `<div class='asset'><b>${r.name}</b><div>${fmtNumber(r.hashrateTHs, 2)} TH/s • ${fmtCurrency(r.purchasePrice, 0)}</div><div>${r.unlocked ? 'Available now' : `Unlocks on ${r.unlockDate}`}</div></div>`).join('');
 }
 
 $('qty').oninput = renderTradeEstimate;

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
 import { createDb } from './server/db.mjs';
 import { SimEngine } from './server/engine.mjs';
-import { CLIENT_EVENTS, SERVER_EVENTS, ASSETS, RIG_CATALOG, REGIONS } from './shared/contracts.mjs';
+import { CLIENT_EVENTS, SERVER_EVENTS, ASSETS, REGION_UNLOCK_FEES, RIG_CATALOG, REGIONS } from './shared/contracts.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,7 +33,7 @@ app.get('/admin/news', (_req, res) => res.sendFile(path.join(__dirname, 'client/
 app.get('/admin/control', (_req, res) => res.sendFile(path.join(__dirname, 'client/admin-control.html')));
 
 app.get('/api/bootstrap', (_req, res) => {
-  res.json({ assets: ASSETS, rigCatalog: RIG_CATALOG, regions: REGIONS, simState: engine.state, tickMs: engine.tickMs, simSeeded: process.env.SIM_SEED != null });
+  res.json({ assets: ASSETS, rigCatalog: RIG_CATALOG, regions: REGIONS, regionUnlockFees: REGION_UNLOCK_FEES, simState: engine.state, tickMs: engine.tickMs, simSeeded: process.env.SIM_SEED != null });
 });
 
 function broadcast() {
@@ -95,6 +95,7 @@ io.on('connection', (socket) => {
   socket.on(CLIENT_EVENTS.BUY_CRYPTO, ({ symbol, qty }) => { const p = engine.getPlayerBySocket(socket.id); if (!p) return sendErr(socket, 'Join first'); const out = engine.buyCrypto(p, symbol, qty); if (!out.ok) sendErr(socket, out.message); });
   socket.on(CLIENT_EVENTS.SELL_CRYPTO, ({ symbol, qty }) => { const p = engine.getPlayerBySocket(socket.id); if (!p) return sendErr(socket, 'Join first'); const out = engine.sellCrypto(p, symbol, qty); if (!out.ok) sendErr(socket, out.message); });
   socket.on(CLIENT_EVENTS.BUY_RIG, ({ region, rigType, count }) => { const p = engine.getPlayerBySocket(socket.id); if (!p) return sendErr(socket, 'Join first'); const out = engine.buyRig(p, region, rigType, count); if (!out.ok) sendErr(socket, out.message); });
+  socket.on(CLIENT_EVENTS.UNLOCK_REGION, ({ region }) => { const p = engine.getPlayerBySocket(socket.id); if (!p) return sendErr(socket, 'Join first'); const out = engine.unlockRegion(p, region); if (!out.ok) sendErr(socket, out.message); });
   socket.on(CLIENT_EVENTS.SELL_RIG, (payload) => { const p = engine.getPlayerBySocket(socket.id); if (!p) return sendErr(socket, 'Join first'); const out = engine.sellRig(p, payload); if (!out.ok) sendErr(socket, out.message); });
 
   socket.on(CLIENT_EVENTS.ADMIN_UPDATE_MARKET, (payload) => { if (!socket.data.isAdmin) return sendErr(socket, 'Admin only'); engine.updateMarketParams(payload); if (payload?.tickMs) restartTickLoop(); });

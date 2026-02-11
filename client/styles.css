@@ -2,6 +2,9 @@
 *{box-sizing:border-box} body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text)}
 .container{max-width:980px;margin:0 auto;padding:16px}.panel{background:var(--panel);border-radius:14px;padding:14px;margin-bottom:12px}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.space{justify-content:space-between}.btn{background:var(--accent);border:0;color:#fff;padding:10px 14px;border-radius:10px;font-weight:600}.btn.alt{background:#283252}.btn.bad{background:var(--bad)}
+
+.fullscreen-toggle{position:fixed;top:12px;right:12px;z-index:1000;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+
 input,select,textarea{background:#0d1428;color:#fff;border:1px solid #24304f;border-radius:8px;padding:8px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .asset{padding:12px;border-radius:10px;background:#0d1428}.muted{color:var(--muted)}.good{color:var(--ok)}.bad{color:var(--bad)}

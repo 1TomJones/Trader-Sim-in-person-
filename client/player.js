@@ -14,6 +14,31 @@ const fmtDate = (d) => new Date(d).toISOString().slice(0, 10);
 const fmtNumber = (n, d = 2) => Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 const fmtCurrency = (n, d = 2) => `$${fmtNumber(n, d)}`;
 
+
+function isFullscreenActive() {
+  return Boolean(document.fullscreenElement);
+}
+
+function updateFullscreenButton() {
+  const btn = $('fullscreenBtn');
+  if (!btn) return;
+  btn.textContent = isFullscreenActive() ? 'Exit Fullscreen' : 'Enter Fullscreen';
+}
+
+async function toggleFullscreen() {
+  try {
+    if (isFullscreenActive()) {
+      await document.exitFullscreen();
+      return;
+    }
+    await document.documentElement.requestFullscreen();
+  } catch {
+    // Ignore browser fullscreen errors (gesture restrictions, unsupported envs).
+  } finally {
+    updateFullscreenButton();
+  }
+}
+
 function showPlayerJoin() { $('joinScreen').classList.remove('hidden'); $('waitScreen').classList.add('hidden'); $('app').classList.add('hidden'); }
 function showPlayerWait() { $('joinScreen').classList.add('hidden'); $('waitScreen').classList.remove('hidden'); $('app').classList.add('hidden'); }
 function showPlayerApp() { $('joinScreen').classList.add('hidden'); $('waitScreen').classList.add('hidden'); $('app').classList.remove('hidden'); }
@@ -132,6 +157,12 @@ $('buy').onclick = () => socket.emit(CLIENT_EVENTS.BUY_CRYPTO, { symbol: 'BTC', 
 $('sell').onclick = () => socket.emit(CLIENT_EVENTS.SELL_CRYPTO, { symbol: 'BTC', qty: Number($('qty').value) });
 $('buyRig').onclick = () => socket.emit(CLIENT_EVENTS.BUY_RIG, { region: $('rigRegion').value, rigType: $('rigType').value, count: Number($('rigCount').value) });
 $('sellRig').onclick = () => socket.emit(CLIENT_EVENTS.SELL_RIG, { region: $('rigRegion').value, rigType: $('rigType').value, count: 1 });
+
+
+const fullscreenBtn = $('fullscreenBtn');
+if (fullscreenBtn) fullscreenBtn.onclick = () => toggleFullscreen();
+document.addEventListener('fullscreenchange', updateFullscreenButton);
+updateFullscreenButton();
 
 $('tradeTab').onclick = () => { $('tradeView').classList.remove('hidden'); $('mineView').classList.add('hidden'); $('tradeTab').className = 'btn tab'; $('mineTab').className = 'btn alt tab'; };
 $('mineTab').onclick = () => { $('mineView').classList.remove('hidden'); $('tradeView').classList.add('hidden'); $('mineTab').className = 'btn tab'; $('tradeTab').className = 'btn alt tab'; };

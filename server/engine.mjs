@@ -24,6 +24,7 @@ const BASE_DAILY_STEP_PCT = 0.012;
 const BASE_ENERGY = { ASIA: 0.07, EUROPE: 0.17, AMERICA: 0.11 };
 const MAX_HASHRATE_POINTS = 600;
 const MINER_POWER_COST_REDUCTION_FACTOR = 20;
+const MAX_RIG_PURCHASE_COUNT = 500;
 
 const uuid = () => crypto.randomUUID();
 const toISODate = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -564,17 +565,38 @@ export class SimEngine {
     if (!this.assertRate(player.id, 'rig')) return { ok: false, message: 'Rate limit exceeded' };
     const rig = RIG_CATALOG[rigType];
     count = Math.max(1, Math.floor(Number(count) || 1));
+    if (count > MAX_RIG_PURCHASE_COUNT) {
+      return { ok: false, message: `Max ${MAX_RIG_PURCHASE_COUNT} miners per purchase to keep simulation responsive` };
+    }
     if (!rig || !REGIONS.includes(region)) return { ok: false, message: 'Invalid rig request' };
     const simDate = toISODate(this.currentSimDateMs());
     if (simDate < rig.unlockDate) return { ok: false, message: `Miner unlocks on ${rig.unlockDate}` };
     if (!player.unlockedRegions?.has(region)) return { ok: false, message: `${region} is locked` };
     const totalCost = rig.purchasePrice * count;
     if (!(player.cashUSD > 0 && player.cashUSD - totalCost >= 0)) return { ok: false, message: 'Insufficient cash' };
-    for (let i = 0; i < count; i += 1) {
-      const r = { id: uuid(), playerId: player.id, region, rigType: rig.key, ...rig, createdAt: Date.now() };
-      player.rigs.push(r);
-      this.db.prepare('INSERT INTO mining_rigs(id,playerId,region,rigType,purchasePrice,hashrateTHs,efficiencyWPerTH,resaleValuePct,createdAt) VALUES (?,?,?,?,?,?,?,?,?)').run(r.id, r.playerId, r.region, r.rigType, r.purchasePrice, r.hashrateTHs, r.efficiencyWPerTH, r.resaleValuePct, r.createdAt);
+    const createdAt = Date.now();
+    const rigs = Array.from({ length: count }, () => ({
+      id: uuid(),
+      playerId: player.id,
+      region,
+      rigType: rig.key,
+      ...rig,
+      createdAt,
+    }));
+
+    const insertRig = this.db.prepare('INSERT INTO mining_rigs(id,playerId,region,rigType,purchasePrice,hashrateTHs,efficiencyWPerTH,resaleValuePct,createdAt) VALUES (?,?,?,?,?,?,?,?,?)');
+    this.db.exec('BEGIN');
+    try {
+      for (const r of rigs) {
+        insertRig.run(r.id, r.playerId, r.region, r.rigType, r.purchasePrice, r.hashrateTHs, r.efficiencyWPerTH, r.resaleValuePct, r.createdAt);
+      }
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
     }
+
+    player.rigs.push(...rigs);
     player.cashUSD -= totalCost;
     return { ok: true };
   }

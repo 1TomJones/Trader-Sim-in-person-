@@ -163,7 +163,11 @@ function renderMineMetrics() {
 $('qty').oninput = renderTradeEstimate;
 $('buy').onclick = () => socket.emit(CLIENT_EVENTS.BUY_CRYPTO, { symbol: 'BTC', qty: Number($('qty').value) });
 $('sell').onclick = () => socket.emit(CLIENT_EVENTS.SELL_CRYPTO, { symbol: 'BTC', qty: Number($('qty').value) });
-$('buyRig').onclick = () => socket.emit(CLIENT_EVENTS.BUY_RIG, { region: $('rigRegion').value, rigType: $('rigType').value, count: Number($('rigCount').value) });
+$('buyRig').onclick = () => {
+  const count = Math.max(1, Math.min(500, Math.floor(Number($('rigCount').value) || 1)));
+  $('rigCount').value = String(count);
+  socket.emit(CLIENT_EVENTS.BUY_RIG, { region: $('rigRegion').value, rigType: $('rigType').value, count });
+};
 $('sellRig').onclick = () => socket.emit(CLIENT_EVENTS.SELL_RIG, { region: $('rigRegion').value, rigType: $('rigType').value, count: 1 });
 
 

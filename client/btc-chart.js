@@ -7,7 +7,7 @@ export function createBtcCandleChart(container) {
     rightPriceScale: { borderColor: '#2b3a60' },
     timeScale: { borderColor: '#2b3a60', rightOffset: 2 },
   });
-  const series = chart.addCandlestickSeries({ upColor: '#32d296', downColor: '#ff6b6b', borderUpColor: '#32d296', borderDownColor: '#ff6b6b', wickUpColor: '#32d296', wickDownColor: '#ff6b6b' });
+  const series = chart.addCandlestickSeries({ upColor: '#32d296', downColor: '#ff6b6b', borderUpColor: '#32d296', borderDownColor: '#ff6b6b', wickUpColor: '#32d296', wickDownColor: '#ff6b6b', priceLineVisible: false });
 
   return {
     setInitialCandles(candles) {

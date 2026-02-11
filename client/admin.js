@@ -19,6 +19,36 @@ const fmtNumber = (n, d = 2) => Number(n || 0).toLocaleString('en-US', { minimum
 const fmtCurrency = (n, d = 2) => `$${fmtNumber(n, d)}`;
 
 
+function isFullscreenActive() {
+  return Boolean(document.fullscreenElement);
+}
+
+function updateFullscreenButton() {
+  const btn = $('fullscreenBtn');
+  if (!btn) return;
+  btn.textContent = isFullscreenActive() ? 'Exit Fullscreen' : 'Enter Fullscreen';
+}
+
+async function toggleFullscreen() {
+  try {
+    if (isFullscreenActive()) {
+      await document.exitFullscreen();
+      return;
+    }
+    await document.documentElement.requestFullscreen();
+  } catch {
+    // Ignore browser fullscreen errors (gesture restrictions, unsupported envs).
+  } finally {
+    updateFullscreenButton();
+  }
+}
+
+const fullscreenBtn = $('fullscreenBtn');
+if (fullscreenBtn) fullscreenBtn.onclick = () => toggleFullscreen();
+document.addEventListener('fullscreenchange', updateFullscreenButton);
+updateFullscreenButton();
+
+
 function compareValues(a, b, key) {
   if (key === 'name') return String(a.name || '').localeCompare(String(b.name || ''));
   return Number(a[key] || 0) - Number(b[key] || 0);

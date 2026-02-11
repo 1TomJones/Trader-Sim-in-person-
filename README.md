@@ -33,17 +33,17 @@ This sim is now **Bitcoin-only**.
 
 - **Avalon Gen1 (2013)**
   - Unlock date: `2013-01-01`
-  - Hashrate: `0.07 TH/s`
+  - Hashrate: `0.70 TH/s`
   - Efficiency: `6800 W/TH`
   - Price: `$900`
 - **Antminer S5 (2014/2015 unlock)**
   - Unlock date: `2014-12-01`
-  - Hashrate: `1.15 TH/s`
+  - Hashrate: `11.50 TH/s`
   - Efficiency: `510 W/TH`
   - Price: `$1400`
 - **Antminer S9 (2016 unlock)**
   - Unlock date: `2016-06-01`
-  - Hashrate: `13.5 TH/s`
+  - Hashrate: `135 TH/s`
   - Efficiency: `98 W/TH`
   - Price: `$2400`
 
